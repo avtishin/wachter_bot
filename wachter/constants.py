@@ -36,7 +36,7 @@ Regex фильтр: ```{regex_filter}```
 Кикать по regex только новых: {filter_only_new_users}
 """
 
-default_kick_timeout = 30
+default_kick_timeout = 0
 notify_delta = 10
 min_whois_length = 20
 
