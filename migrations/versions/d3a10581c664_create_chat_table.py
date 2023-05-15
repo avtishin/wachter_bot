@@ -22,7 +22,6 @@ def upgrade():
     sa.Column('id', sa.BigInteger(), nullable=False),
     sa.Column('on_new_chat_member_message', sa.Text(), nullable=False),
     sa.Column('on_introduce_message', sa.Text(), nullable=False),
-    sa.Column('on_introduce_message_small_whois', sa.Text(), nullable=False),
     sa.Column('kick_timeout', sa.Integer(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )

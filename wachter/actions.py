@@ -220,6 +220,7 @@ def on_hashtag_message(bot, update, user_data, job_queue):
             message_markdown = mention_markdown(bot, chat_id, user_id, message)
             update.message.reply_text(
                 message_markdown, parse_mode=telegram.ParseMode.MARKDOWN)
+
     else:
         on_message(bot, update, user_data=user_data, job_queue=job_queue)
 

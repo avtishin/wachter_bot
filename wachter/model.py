@@ -18,7 +18,6 @@ class Chat(Base):
     on_new_chat_member_message = Column(Text, nullable=False, default='Пожалуйста, представьтесь и поздоровайтесь с сообществом.')
     on_known_new_chat_member_message = Column(Text, nullable=False, default='Добро пожаловать. Снова')
     on_introduce_message = Column(Text, nullable=False, default='Добро пожаловать.')
-    on_introduce_message_small_whois = Column(Text, nullable=False, default='%USER\_MENTION%, напиши о себе подробнее.')
     on_kick_message = Column(Text, nullable=False, default='%USER\_MENTION% молчит и покидает чат')
     notify_message = Column(Text, nullable=False, default='%USER\_MENTION%, пожалуйста, представьтесь и поздоровайтесь с сообществом.')
     regex_filter = Column(Text, nullable=True)
