@@ -23,7 +23,8 @@ class Chat(Base):
                                                                       'мы будем вынуждены тебя удалить из чата.')
     on_known_new_chat_member_message = Column(Text, nullable=False, default='Добро пожаловать. Снова')
     on_introduce_message = Column(Text, nullable=False, default='Добро пожаловать.')
-    on_introduce_message_small_whois = Column(Text, nullable=False, default='%USER\_MENTION%, напиши о себе подробнее.')
+    on_introduce_message_small_whois = Column(Text, nullable=False, default='%USER\_MENTION%, твое сообщение слишком короткое, '
+                                                                            'напиши о себе подробнее.')
     on_kick_message = Column(Text, nullable=False, default='%USER\_MENTION% молчит и покидает чат')
     notify_message = Column(Text, nullable=False, default='%USER\_MENTION%, пожалуйста, представьтесь и поздоровайтесь с сообществом.')
     regex_filter = Column(Text, nullable=True)
