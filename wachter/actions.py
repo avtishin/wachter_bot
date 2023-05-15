@@ -520,7 +520,7 @@ def on_message(bot, update, user_data, job_queue):
                 if action == Actions.set_on_kick_message:
                     chat = Chat(id=chat_id, on_kick_message=message)
                 if action == Actions.set_small_whois:
-                    chat = Chat(id=chat_id, set_small_whois=message)
+                    chat = Chat(id=chat_id, on_introduce_message_small_whois=message)
                 if action == Actions.set_filter_only_new_users:
                     if message.lower() in ["true", "1"]:
                         filter_only_new_users = True
