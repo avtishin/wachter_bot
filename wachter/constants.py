@@ -34,6 +34,8 @@ Regex фильтр: ```{regex_filter}```
 Сообщение после кика: {on_kick_message}
 –––
 Кикать по regex только новых: {filter_only_new_users}
+---
+Сообщение, если #whois короткий: {on_introduce_message_small_whois}
 """
 
 default_kick_timeout = 0
@@ -53,6 +55,7 @@ class Actions(IntEnum):
     set_on_kick_message = auto()
     set_regex_filter = auto()
     set_filter_only_new_users = auto()
+    set_small_whois = auto()
     get_current_settings = auto()
 
 

@@ -320,6 +320,9 @@ def on_button_click(bot, update, user_data):
             [InlineKeyboardButton("Изменить фильтрацию только для новых пользователей", callback_data=json.dumps(
                 {'chat_id': selected_chat_id, 'action': Actions.set_filter_only_new_users}
             ))],
+            [InlineKeyboardButton("Изменить сообщение, если #whois короткий", callback_data=json.dumps(
+                {'chat_id': selected_chat_id, 'action': Actions.set_small_whois}
+            ))],
             [InlineKeyboardButton('Получить текущие настройки', callback_data=json.dumps(
                 {'chat_id': selected_chat_id, 'action': Actions.get_current_settings}))]
         ]
@@ -336,7 +339,8 @@ def on_button_click(bot, update, user_data):
                             Actions.set_on_successful_introducion_response,
                             Actions.set_on_kick_message,
                             Actions.set_regex_filter,
-                            Actions.set_filter_only_new_users]:
+                            Actions.set_filter_only_new_users,
+                            Actions.set_small_whois]:
         bot.edit_message_text(text="Отправьте новое значение",
                               chat_id=query.message.chat_id,
                               message_id=query.message.message_id)
@@ -500,7 +504,8 @@ def on_message(bot, update, user_data, job_queue):
                         Actions.set_on_successful_introducion_response,
                         Actions.set_on_kick_message,
                         Actions.set_regex_filter,
-                        Actions.set_filter_only_new_users]:
+                        Actions.set_filter_only_new_users,
+                        Actions.set_small_whois]:
             message = update.message.text_markdown
             with session_scope() as sess:
                 if action == Actions.set_on_new_chat_member_message_response:
@@ -513,6 +518,8 @@ def on_message(bot, update, user_data, job_queue):
                 if action == Actions.set_notify_message:
                     chat = Chat(id=chat_id, notify_message=message)
                 if action == Actions.set_on_kick_message:
+                    chat = Chat(id=chat_id, on_kick_message=message)
+                if action == Actions.set_small_whois:
                     chat = Chat(id=chat_id, on_kick_message=message)
                 if action == Actions.set_filter_only_new_users:
                     if message.lower() in ["true", "1"]:
