@@ -15,7 +15,12 @@ class Chat(Base):
 
     id = Column(BigInteger, primary_key=True)
 
-    on_new_chat_member_message = Column(Text, nullable=False, default='Пожалуйста, представьтесь и поздоровайтесь с сообществом.')
+    on_new_chat_member_message = Column(Text, nullable=False, default=f'Привет %USER_MENTION%, Это Мишпуха 2.0 без ненависти. '
+                                                                      'Напиши пару слов (30 символов) с тегом #whois, кто ты и чем занимаешься.'
+                                                                      ' Мы хотим создавать сообщество для студентов, выпускников,'
+                                                                      ' сотрудников и друзей РЭШ, поэтому, '
+                                                                      'если ты не представишься в течение 30 минут, '
+                                                                      'мы будем вынуждены тебя удалить из чата.')
     on_known_new_chat_member_message = Column(Text, nullable=False, default='Добро пожаловать. Снова')
     on_introduce_message = Column(Text, nullable=False, default='Добро пожаловать.')
     on_introduce_message_small_whois = Column(Text, nullable=False, default='%USER\_MENTION%, напиши о себе подробнее.')
