@@ -71,4 +71,4 @@ RH_kick_messages = [
 
 # RH_CHAT_ID = -11111
 RH_CHAT_ID = -909735251#test
-#-1400638929 prod
+# RH_CHAT_ID = -1400638929#prod
