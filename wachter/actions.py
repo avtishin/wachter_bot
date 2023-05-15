@@ -237,22 +237,6 @@ def on_hashtag_message(bot, update, user_data, job_queue):
             message_markdown = mention_markdown(bot, chat_id, user_id, message)
             update.message.reply_text(
                 message_markdown, parse_mode=telegram.ParseMode.MARKDOWN)
-    elif "#whois" not in update.message.parse_entities(types=['hashtag']).values() \
-             and chat_id < 0:
-
-        user_id = update.message.from_user.id
-        with session_scope() as sess:
-            chat = sess.query(Chat).filter(Chat.id == chat_id).first()
-
-            if chat is None:
-                chat = Chat(id=chat_id)
-                sess.add(chat)
-                sess.commit()
-
-            message = chat.on_introduce_message_small_whois
-            message_markdown = mention_markdown(bot, chat_id, user_id, message)
-            update.message.reply_text(
-                message_markdown, parse_mode=telegram.ParseMode.MARKDOWN)
     else:
         on_message(bot, update, user_data=user_data, job_queue=job_queue)
 
