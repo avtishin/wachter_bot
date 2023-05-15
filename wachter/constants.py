@@ -38,7 +38,7 @@ Regex фильтр: ```{regex_filter}```
 
 default_kick_timeout = 0
 notify_delta = 10
-min_whois_length = 20
+min_whois_length = 30
 
 
 # ACTIONS
@@ -66,4 +66,5 @@ RH_kick_messages = [
     'Хакер %USER\_MENTION% провалил испытание'
 ]
 
-RH_CHAT_ID = -1001147286684
+RH_CHAT_ID = -909735251#test
+#-1400638929 prod
