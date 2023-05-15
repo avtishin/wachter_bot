@@ -15,7 +15,7 @@ class Chat(Base):
 
     id = Column(BigInteger, primary_key=True)
 
-    on_new_chat_member_message = Column(Text, nullable=False, default=f'Привет %USER_MENTION%, Это Мишпуха 2.0 без ненависти. '
+    on_new_chat_member_message = Column(Text, nullable=False, default='Привет %USER_MENTION%, Это Мишпуха 2.0 без ненависти. '
                                                                       'Напиши пару слов (30 символов) с тегом #whois, кто ты и чем занимаешься.'
                                                                       ' Мы хотим создавать сообщество для студентов, выпускников,'
                                                                       ' сотрудников и друзей РЭШ, поэтому, '
