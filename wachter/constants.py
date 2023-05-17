@@ -4,7 +4,7 @@ from enum import IntEnum, auto
 on_set_new_message = 'Обновил сообщение.'
 on_success_set_kick_timeout_response = 'Обновил таймаут кика.'
 on_failed_set_kick_timeout_response = 'Таймаут должен быть целым положительным числом'
-on_failed_kick_response = 'Я не справился.'
+on_failed_kick_response = '%USER\_MENTION% самостоятельно покинул чат.'
 on_failed_skip = 'Ответьте на сообщение пользователя которого не нужно кикать'
 on_success_skip = 'Теперь пользователю не нужно представляться.'
 on_success_kick_response = "%USER\_MENTION% не представился и был кикнут из чата."
