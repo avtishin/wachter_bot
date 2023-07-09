@@ -158,10 +158,12 @@ def on_kick_timeout(bot, job):
                              job.context["user_id"],
                              until_date=datetime.now() + timedelta(seconds=60))
 
-        if chat.on_kick_message.lower() not in ["false", "0"]:
-            with session_scope() as sess:
-                chat = sess.query(Chat).filter(
-                    Chat.id == job.context['chat_id']).first()
+        with session_scope() as sess:
+            chat = sess.query(Chat).filter(
+                Chat.id == job.context['chat_id']).first()
+            if chat.on_kick_message.lower() not in ["false", "0"]:
+                # chat = sess.query(Chat).filter(
+                #     Chat.id == job.context['chat_id']).first()
                 message_markdown = mention_markdown(
                     bot, job.context['chat_id'], job.context['user_id'], chat.on_kick_message)
 
