@@ -18,7 +18,7 @@ def on_error(bot, update, error):
     logger.warning(f'Update "{update}" caused error "{error}"')
 
 
-def authorize_user(bot, chat_id, user_id): 
+def authorize_user(bot, chat_id, user_id):
     try:
         status = bot.get_chat_member(chat_id, user_id).status
         return status in ['creator', 'administrator']
@@ -170,8 +170,8 @@ def on_kick_timeout(bot, job):
                     bot, job.context['chat_id'], job.context['user_id'], random.choice(RH_kick_messages))
 
             bot.send_message(job.context['chat_id'],
-                            text=message_markdown,
-                            parse_mode=telegram.ParseMode.MARKDOWN)
+                             text=message_markdown,
+                             parse_mode=telegram.ParseMode.MARKDOWN)
     except Exception as e:
         logging.error(e)
         bot.send_message(job.context['chat_id'],
@@ -185,8 +185,8 @@ def on_hashtag_message(bot, update, user_data, job_queue):
     chat_id = update.message.chat_id
 
     if "#whois" in update.message.parse_entities(types=['hashtag']).values() \
-        and len(update.message.text) >= constants.min_whois_length \
-        and chat_id < 0:
+            and len(update.message.text) >= constants.min_whois_length \
+            and chat_id < 0:
         user_id = update.message.from_user.id
 
         with session_scope() as sess:
@@ -418,7 +418,7 @@ def on_message(bot, update, user_data, job_queue):
 
         message_text = update.message.text or update.message.caption
         filter_mask = not authorize_user(bot, chat_id, user_id) and filter_message(chat_id, message_text)
-        
+
         if is_chat_filters_new_users(chat_id):
             filter_mask = filter_mask and is_new_user(chat_id, user_id)
 
@@ -466,8 +466,8 @@ def on_message(bot, update, user_data, job_queue):
             keyboard = [
                 [InlineKeyboardButton('К настройке чата', callback_data=json.dumps(
                     {'chat_id': chat_id, 'action': Actions.select_chat})),
-                InlineKeyboardButton('К списку чатов', callback_data=json.dumps(
-                    {'action': Actions.start_select_chat}))],
+                 InlineKeyboardButton('К списку чатов', callback_data=json.dumps(
+                     {'action': Actions.start_select_chat}))],
             ]
 
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -514,8 +514,8 @@ def on_message(bot, update, user_data, job_queue):
             keyboard = [
                 [InlineKeyboardButton('К настройке чата', callback_data=json.dumps(
                     {'chat_id': chat_id, 'action': Actions.select_chat})),
-                InlineKeyboardButton('К списку чатов', callback_data=json.dumps(
-                    {'action': Actions.start_select_chat}))],
+                 InlineKeyboardButton('К списку чатов', callback_data=json.dumps(
+                     {'action': Actions.start_select_chat}))],
             ]
 
             reply_markup = InlineKeyboardMarkup(keyboard)
