@@ -66,4 +66,4 @@ RH_kick_messages = [
     'Хакер %USER\_MENTION% провалил испытание'
 ]
 
-RH_CHAT_ID = -1001147286684
+RH_CHAT_ID = -909735251
