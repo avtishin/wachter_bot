@@ -38,7 +38,9 @@ class User(Base):
 
 
 def get_uri():
-    return os.environ.get('DATABASE_URL', 'postgresql://localhost:5432/wachter')
+    url = os.environ.get('DATABASE_URL', 'postgresql://localhost:5432/wachter')
+    # Railway выдаёт postgres://, SQLAlchemy 2.0 принимает только postgresql://
+    return url.replace('postgres://', 'postgresql://', 1)
 
 
 engine = create_engine(get_uri(), echo=False)
