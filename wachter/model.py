@@ -15,7 +15,7 @@ class Chat(Base):
 
     id = Column(BigInteger, primary_key=True)
 
-    on_new_chat_member_message = Column(Text, nullable=False, default='Пожалуйста, представьтесь и поздоровайтесь с сообществом. У вас есть %TIMEOUT% минут.')
+    on_new_chat_member_message = Column(Text, nullable=False, default='Пожалуйста, представьтесь и поздоровайтесь с сообществом. У вас есть %TIMEOUT%.')
     on_known_new_chat_member_message = Column(Text, nullable=False, default='Добро пожаловать. Снова')
     on_introduce_message = Column(Text, nullable=False, default='Добро пожаловать.')
     on_kick_message = Column(Text, nullable=False, default=r'%USER\_MENTION% молчит и покидает чат')

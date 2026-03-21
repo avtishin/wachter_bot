@@ -106,8 +106,11 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             user = sess.query(User).filter(
                 User.chat_id == chat_id, User.user_id == user_id
             ).first()
+            user_found = user is not None
 
-        if user is not None:
+        logger.info(f"on_new_chat_member: chat_id={chat_id} user_id={user_id} found_in_db={user_found}")
+
+        if user_found:
             await update.message.reply_text(known_message)
             continue
 
