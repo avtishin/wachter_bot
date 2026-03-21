@@ -24,6 +24,7 @@ class Chat(Base):
     regex_filter = Column(Text, nullable=True)
     filter_only_new_users = Column(Boolean, nullable=False, default=False)
     kick_timeout = Column(Integer, nullable=False, default=0)
+    notify_delta = Column(Integer, nullable=False, default=10)
 
     def __repr__(self):
         return f"<Chat(id={self.id})>"

@@ -384,6 +384,7 @@ class TestNewChatMember:
         mock_chat.on_new_chat_member_message = "Привет %USER\\_MENTION%!"
         mock_chat.on_known_new_chat_member_message = "Снова."
         mock_chat.kick_timeout = 30
+        mock_chat.notify_delta = 10
         mock_sess = MagicMock()
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat, None
@@ -417,6 +418,7 @@ class TestNewChatMember:
         mock_chat.on_new_chat_member_message = "Есть %TIMEOUT% на представление."
         mock_chat.on_known_new_chat_member_message = "Снова."
         mock_chat.kick_timeout = 15
+        mock_chat.notify_delta = 10
         mock_sess = MagicMock()
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat, None

@@ -42,6 +42,10 @@ def main():
         actions.on_hashtag_message,
     ))
     app.add_handler(MessageHandler(filters.FORWARDED, actions.on_forward))
+    app.add_handler(MessageHandler(
+        filters.UpdateType.EDITED_MESSAGE & filters.Entity("hashtag"),
+        actions.on_edited_message,
+    ))
 
     app.add_handler(CommandHandler("start", actions.on_start_command))
     app.add_handler(CommandHandler("skip", actions.on_skip_command))

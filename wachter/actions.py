@@ -96,6 +96,7 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         message_text = chat.on_new_chat_member_message
         known_message = chat.on_known_new_chat_member_message
         timeout = chat.kick_timeout
+        notify_delta = chat.notify_delta
 
     for member in update.message.new_chat_members:
         user_id = member.id
@@ -123,10 +124,10 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         msg = await update.message.reply_text(msg_markdown, parse_mode=ParseMode.MARKDOWN)
 
         if timeout != 0:
-            if timeout >= 10:
+            if notify_delta > 0 and timeout > notify_delta:
                 context.job_queue.run_once(
                     on_notify_timeout,
-                    (timeout - constants.notify_delta) * 60,
+                    (timeout - notify_delta) * 60,
                     data={"chat_id": chat_id, "user_id": user_id},
                     name=f"notify_{chat_id}_{user_id}",
                 )
@@ -229,6 +230,24 @@ async def on_approve_command(update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text("Пользователь одобрен.")
 
 
+async def _process_whois(bot, job_queue, message, chat_id, user_id):
+    """Сохраняет whois и отменяет кик. Возвращает True если кик был активен."""
+    with session_scope() as sess:
+        chat = sess.query(Chat).filter(Chat.id == chat_id).first()
+        if chat is None:
+            chat = Chat(id=chat_id)
+            sess.add(chat)
+            sess.flush()
+        introduce_message = chat.on_introduce_message
+        sess.merge(User(chat_id=chat_id, user_id=user_id, whois=message.text))
+
+    removed = await cancel_kick_jobs(bot, job_queue, chat_id, user_id)
+    if removed:
+        msg_markdown = await mention_markdown(bot, chat_id, user_id, introduce_message)
+        await message.reply_text(msg_markdown, parse_mode=ParseMode.MARKDOWN)
+    return removed
+
+
 async def on_hashtag_message(update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     chat_id = message.chat_id
@@ -238,23 +257,21 @@ async def on_hashtag_message(update, context: ContextTypes.DEFAULT_TYPE):
         and len(message.text or "") >= constants.min_whois_length
         and chat_id < 0
     ):
-        user_id = message.from_user.id
-
-        with session_scope() as sess:
-            chat = sess.query(Chat).filter(Chat.id == chat_id).first()
-            if chat is None:
-                chat = Chat(id=chat_id)
-                sess.add(chat)
-                sess.flush()
-            introduce_message = chat.on_introduce_message
-            sess.merge(User(chat_id=chat_id, user_id=user_id, whois=message.text))
-
-        removed = await cancel_kick_jobs(context.bot, context.job_queue, chat_id, user_id)
-        if removed:
-            msg_markdown = await mention_markdown(context.bot, chat_id, user_id, introduce_message)
-            await message.reply_text(msg_markdown, parse_mode=ParseMode.MARKDOWN)
+        await _process_whois(context.bot, context.job_queue, message, chat_id, message.from_user.id)
     else:
         await on_message(update, context)
+
+
+async def on_edited_message(update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает #whois из отредактированного сообщения."""
+    message = update.edited_message
+    if message is None or message.chat_id >= 0:
+        return
+    if (
+        "#whois" in message.parse_entities(types=["hashtag"]).values()
+        and len(message.text or "") >= constants.min_whois_length
+    ):
+        await _process_whois(context.bot, context.job_queue, message, message.chat_id, message.from_user.id)
 
 
 async def on_start_command(update, context: ContextTypes.DEFAULT_TYPE):
@@ -329,6 +346,8 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("Изменить таймаут кика", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_kick_timeout}))],
+            [InlineKeyboardButton("Изменить время напоминания (мин. до кика)", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_notify_delta}))],
             [InlineKeyboardButton("Изменить сообщение при входе в чат", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_on_new_chat_member_message_response}))],
             [InlineKeyboardButton("Изменить сообщение при перезаходе в чат", callback_data=json.dumps(
@@ -354,6 +373,7 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
         Actions.set_on_new_chat_member_message_response,
         Actions.set_kick_timeout,
         Actions.set_notify_message,
+        Actions.set_notify_delta,
         Actions.set_on_known_new_chat_member_message_response,
         Actions.set_on_successful_introducion_response,
         Actions.set_on_kick_message,
@@ -440,6 +460,12 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
         if is_chat_filters_new_users(chat_id):
             filter_mask = filter_mask and is_new_user(chat_id, user_id)
 
+        if not filter_mask and not (message.text or "").startswith("/"):
+            kick_jobs = context.job_queue.get_jobs_by_name(f"kick_{chat_id}_{user_id}")
+            if kick_jobs:
+                reminder = await mention_markdown(context.bot, chat_id, user_id, constants.on_whois_reminder)
+                await message.reply_text(reminder, parse_mode=ParseMode.MARKDOWN)
+
         if filter_mask:
             await context.bot.delete_message(chat_id, message.message_id)
             msg_markdown = await mention_markdown(
@@ -474,6 +500,18 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
 
             with session_scope() as sess:
                 sess.merge(Chat(id=chat_id, kick_timeout=timeout))
+            context.user_data["action"] = None
+
+        elif action == Actions.set_notify_delta:
+            try:
+                delta = int(message.text)
+                assert delta >= 0
+            except Exception:
+                await message.reply_text("Введите целое неотрицательное число (минут до кика для напоминания, 0 — отключить).")
+                return
+
+            with session_scope() as sess:
+                sess.merge(Chat(id=chat_id, notify_delta=delta))
             context.user_data["action"] = None
 
             keyboard = [[

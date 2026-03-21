@@ -27,7 +27,8 @@ help_message = '''Привет. Для начала работы добавь м
 '''
 
 get_settings_message = """
-Таймаут кика: {kick_timeout}
+Таймаут кика: {kick_timeout} мин.
+Напоминание за: {notify_delta} мин. до кика
 ---
 Сообщение для нового участника чата: {on_new_chat_member_message}
 ---
@@ -46,6 +47,8 @@ Regex фильтр: ```{regex_filter}```
 Кикать по regex только новых: {filter_only_new_users}
 """
 
+on_whois_reminder = r'%USER\_MENTION%, напишите сообщение с тегом \#whois (минимум 20 символов), чтобы представиться.'
+
 default_kick_timeout = 0
 notify_delta = 10
 min_whois_length = 20
@@ -62,6 +65,7 @@ class Actions(IntEnum):
     set_kick_timeout = auto()
     set_on_kick_message = auto()
     set_on_left_chat_member_message = auto()
+    set_notify_delta = auto()
     set_regex_filter = auto()
     set_filter_only_new_users = auto()
     get_current_settings = auto()
