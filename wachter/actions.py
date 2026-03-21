@@ -534,10 +534,6 @@ async def on_whois_command(update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id > 0:
         return
 
-    if not await authorize_user(context.bot, chat_id, update.effective_user.id):
-        await message.reply_text("Эта команда доступна только администраторам.")
-        return
-
     # Определяем user_id из аргумента или reply
     user_id = None
     if context.args:
