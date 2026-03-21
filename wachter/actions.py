@@ -360,6 +360,8 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
                 {"chat_id": selected_chat_id, "action": Actions.set_on_kick_message}))],
             [InlineKeyboardButton("Изменить сообщение при выходе из чата", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_on_left_chat_member_message}))],
+            [InlineKeyboardButton("Изменить напоминание написать #whois", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_on_whois_reminder_message}))],
             [InlineKeyboardButton("Изменить regex для фильтра сообщений", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_regex_filter}))],
             [InlineKeyboardButton("Изменить фильтрацию только для новых пользователей", callback_data=json.dumps(
@@ -378,6 +380,7 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
         Actions.set_on_successful_introducion_response,
         Actions.set_on_kick_message,
         Actions.set_on_left_chat_member_message,
+        Actions.set_on_whois_reminder_message,
         Actions.set_regex_filter,
         Actions.set_filter_only_new_users,
     ]:
@@ -463,8 +466,12 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
         if not filter_mask and not (message.text or "").startswith("/"):
             kick_jobs = context.job_queue.get_jobs_by_name(f"kick_{chat_id}_{user_id}")
             if kick_jobs:
-                reminder = await mention_markdown(context.bot, chat_id, user_id, constants.on_whois_reminder)
-                await message.reply_text(reminder, parse_mode=ParseMode.MARKDOWN)
+                with session_scope() as sess:
+                    chat = sess.query(Chat).filter(Chat.id == chat_id).first()
+                    reminder_template = chat.on_whois_reminder_message if chat else None
+                if reminder_template:
+                    reminder = await mention_markdown(context.bot, chat_id, user_id, reminder_template)
+                    await message.reply_text(reminder, parse_mode=ParseMode.MARKDOWN)
 
         if filter_mask:
             await context.bot.delete_message(chat_id, message.message_id)
@@ -548,6 +555,8 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
                     chat = Chat(id=chat_id, on_kick_message=value)
                 elif action == Actions.set_on_left_chat_member_message:
                     chat = Chat(id=chat_id, on_left_chat_member_message=value)
+                elif action == Actions.set_on_whois_reminder_message:
+                    chat = Chat(id=chat_id, on_whois_reminder_message=value)
                 elif action == Actions.set_filter_only_new_users:
                     chat = Chat(id=chat_id, filter_only_new_users=value.lower() in ["true", "1"])
                 elif action == Actions.set_regex_filter:

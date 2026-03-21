@@ -43,11 +43,12 @@ Regex фильтр: ```{regex_filter}```
 Сообщение после кика: {on_kick_message}
 ---
 Сообщение при выходе из чата: {on_left_chat_member_message}
+---
+Напоминание написать #whois: {on_whois_reminder_message}
 –––
 Кикать по regex только новых: {filter_only_new_users}
 """
 
-on_whois_reminder = r'%USER\_MENTION%, напишите сообщение с тегом \#whois (минимум 20 символов), чтобы представиться.'
 
 default_kick_timeout = 0
 notify_delta = 10
@@ -66,6 +67,7 @@ class Actions(IntEnum):
     set_on_kick_message = auto()
     set_on_left_chat_member_message = auto()
     set_notify_delta = auto()
+    set_on_whois_reminder_message = auto()
     set_regex_filter = auto()
     set_filter_only_new_users = auto()
     get_current_settings = auto()

@@ -20,6 +20,7 @@ class Chat(Base):
     on_introduce_message = Column(Text, nullable=False, default='Добро пожаловать.')
     on_kick_message = Column(Text, nullable=False, default=r'%USER\_MENTION% молчит и покидает чат')
     on_left_chat_member_message = Column(Text, nullable=False, default=r'%USER\_MENTION% покинул чат')
+    on_whois_reminder_message = Column(Text, nullable=False, default=r'%USER\_MENTION%, напишите сообщение с тегом \#whois (минимум 20 символов), чтобы представиться.')
     notify_message = Column(Text, nullable=False, default=r'%USER\_MENTION%, пожалуйста, представьтесь и поздоровайтесь с сообществом.')
     regex_filter = Column(Text, nullable=True)
     filter_only_new_users = Column(Boolean, nullable=False, default=False)
