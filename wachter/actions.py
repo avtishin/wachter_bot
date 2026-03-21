@@ -528,11 +528,15 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_whois_command(update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
+    if not await authorize_user(context.bot, chat_id, update.effective_user.id):
+        return
+
     if len(context.args) != 1:
         await update.message.reply_text("Usage: /whois <user_id>")
         return
 
-    chat_id = update.effective_chat.id
     user_id = context.args[0]
 
     with session_scope() as sess:
