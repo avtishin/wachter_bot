@@ -102,6 +102,7 @@ class TestApproveCommand:
         update = make_update(chat_id=-100, user_id=100)
         update.effective_message.reply_to_message = MagicMock()
         update.effective_message.reply_to_message.from_user.id = 99
+        update.effective_message.reply_to_message.from_user.is_bot = False
 
         with patch("actions.session_scope") as mock_scope:
             mock_sess = MagicMock()
@@ -119,6 +120,7 @@ class TestApproveCommand:
         update = make_update(chat_id=-100, user_id=100)
         update.effective_message.reply_to_message = MagicMock()
         update.effective_message.reply_to_message.from_user.id = 99
+        update.effective_message.reply_to_message.from_user.is_bot = False
 
         job = make_kick_job(chat_id=-100, user_id=99)
         admin_context.job_queue.get_jobs_by_name.side_effect = (
@@ -222,17 +224,26 @@ class TestHashtagMessage:
 class TestWhoisCommand:
     async def test_no_args_shows_usage(self, mock_context):
         from actions import on_whois_command
-        update = make_update()
+        update = make_update(chat_id=-100)
         mock_context.args = []
+        update.message.reply_to_message = None
         await on_whois_command(update, mock_context)
-        update.message.reply_text.assert_called_once_with("Usage: /whois <user_id>")
+        update.message.reply_text.assert_called_once_with(
+            "Usage: /whois @username | /whois <user_id> | ответ на сообщение"
+        )
 
-    async def test_too_many_args_shows_usage(self, mock_context):
+    async def test_extra_args_uses_first_arg(self, mock_context):
         from actions import on_whois_command
-        update = make_update()
+        update = make_update(chat_id=-100)
         mock_context.args = ["42", "extra"]
-        await on_whois_command(update, mock_context)
-        update.message.reply_text.assert_called_once_with("Usage: /whois <user_id>")
+
+        with patch("actions.session_scope") as mock_scope:
+            mock_sess = MagicMock()
+            mock_sess.query.return_value.filter.return_value.first.return_value = None
+            mock_scope.return_value.__enter__.return_value = mock_sess
+            await on_whois_command(update, mock_context)
+
+        update.message.reply_text.assert_called_once_with("Пользователь не найден в базе.")
 
     async def test_user_found(self, mock_context):
         from actions import on_whois_command
@@ -262,7 +273,7 @@ class TestWhoisCommand:
             mock_scope.return_value.__enter__.return_value = mock_sess
             await on_whois_command(update, mock_context)
 
-        update.message.reply_text.assert_called_once_with("user not found")
+        update.message.reply_text.assert_called_once_with("Пользователь не найден в базе.")
 
 
 # ---------------------------------------------------------------------------
