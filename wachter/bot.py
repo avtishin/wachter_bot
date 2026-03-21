@@ -34,6 +34,10 @@ def main():
         actions.on_new_chat_member,
     ))
     app.add_handler(MessageHandler(
+        filters.StatusUpdate.LEFT_CHAT_MEMBER,
+        actions.on_left_chat_member,
+    ))
+    app.add_handler(MessageHandler(
         filters.Entity("hashtag"),
         actions.on_hashtag_message,
     ))

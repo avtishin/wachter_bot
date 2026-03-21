@@ -86,7 +86,9 @@ class TestApproveCommand:
         from actions import on_approve_command
         update = make_update(chat_id=-100)
         await on_approve_command(update, mock_context)
-        update.effective_message.reply_text.assert_not_called()
+        update.effective_message.reply_text.assert_called_once_with(
+            "Эта команда доступна только администраторам."
+        )
 
     async def test_no_reply_shows_hint(self, admin_context):
         from actions import on_approve_command

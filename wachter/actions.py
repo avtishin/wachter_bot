@@ -198,6 +198,7 @@ async def on_approve_command(update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not await authorize_user(context.bot, chat_id, message.from_user.id):
+        await message.reply_text("Эта команда доступна только администраторам.")
         return
 
     if message.reply_to_message is None:
@@ -565,3 +566,14 @@ async def on_whois_command(update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         await message.reply_text(f"whois: {user.whois}")
+
+
+async def on_left_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
+    member = update.message.left_chat_member
+    if member.is_bot:
+        return
+    mention = member.mention_markdown() if member.name else member.full_name
+    await update.message.reply_text(
+        f"{mention} покинул чат.",
+        parse_mode=ParseMode.MARKDOWN,
+    )
