@@ -40,6 +40,8 @@ get_settings_message = """
 Regex фильтр: ```{regex_filter}```
 ---
 Сообщение после кика: {on_kick_message}
+---
+Сообщение при выходе из чата: {on_left_chat_member_message}
 –––
 Кикать по regex только новых: {filter_only_new_users}
 """
@@ -59,6 +61,7 @@ class Actions(IntEnum):
     set_on_known_new_chat_member_message_response = auto()
     set_kick_timeout = auto()
     set_on_kick_message = auto()
+    set_on_left_chat_member_message = auto()
     set_regex_filter = auto()
     set_filter_only_new_users = auto()
     get_current_settings = auto()

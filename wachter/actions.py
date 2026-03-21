@@ -339,6 +339,8 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
                 {"chat_id": selected_chat_id, "action": Actions.set_notify_message}))],
             [InlineKeyboardButton("Изменить сообщение после кика", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_on_kick_message}))],
+            [InlineKeyboardButton("Изменить сообщение при выходе из чата", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_on_left_chat_member_message}))],
             [InlineKeyboardButton("Изменить regex для фильтра сообщений", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_regex_filter}))],
             [InlineKeyboardButton("Изменить фильтрацию только для новых пользователей", callback_data=json.dumps(
@@ -355,6 +357,7 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
         Actions.set_on_known_new_chat_member_message_response,
         Actions.set_on_successful_introducion_response,
         Actions.set_on_kick_message,
+        Actions.set_on_left_chat_member_message,
         Actions.set_regex_filter,
         Actions.set_filter_only_new_users,
     ]:
@@ -505,6 +508,8 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
                     chat = Chat(id=chat_id, notify_message=value)
                 elif action == Actions.set_on_kick_message:
                     chat = Chat(id=chat_id, on_kick_message=value)
+                elif action == Actions.set_on_left_chat_member_message:
+                    chat = Chat(id=chat_id, on_left_chat_member_message=value)
                 elif action == Actions.set_filter_only_new_users:
                     chat = Chat(id=chat_id, filter_only_new_users=value.lower() in ["true", "1"])
                 elif action == Actions.set_regex_filter:
@@ -572,8 +577,13 @@ async def on_left_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
     member = update.message.left_chat_member
     if member.is_bot:
         return
-    mention = member.mention_markdown() if member.name else member.full_name
-    await update.message.reply_text(
-        f"{mention} покинул чат.",
-        parse_mode=ParseMode.MARKDOWN,
-    )
+    chat_id = update.effective_chat.id
+    with session_scope() as sess:
+        chat = sess.query(Chat).filter(Chat.id == chat_id).first()
+        if chat is None:
+            return
+        template = chat.on_left_chat_member_message
+    if template.lower() in ["false", "0"]:
+        return
+    msg_markdown = await mention_markdown(context.bot, chat_id, member.id, template)
+    await update.message.reply_text(msg_markdown, parse_mode=ParseMode.MARKDOWN)
