@@ -1,11 +1,10 @@
-from telegram.ext import BaseFilter
+from telegram.ext import filters
 
 
-class FilterBotAdded(BaseFilter):                                         # filter for message, that bot was added to group
+class FilterBotAdded(filters.BaseFilter):
+    """Пропускает обновления о добавлении участников, когда добавляют НЕ бота."""
     def filter(self, message):
-        if message.new_chat_members[-1].is_bot:
-            return False
-        return True
+        return bool(message.new_chat_members and not message.new_chat_members[-1].is_bot)
 
 
 filter_bot_added = FilterBotAdded()

@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine
 from sqlalchemy import Column, Integer, String, Text, Boolean, BigInteger
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm.session import sessionmaker
 from contextlib import contextmanager
 import enum
@@ -15,11 +15,11 @@ class Chat(Base):
 
     id = Column(BigInteger, primary_key=True)
 
-    on_new_chat_member_message = Column(Text, nullable=False, default='Пожалуйста, представьтесь и поздоровайтесь с сообществом.')
+    on_new_chat_member_message = Column(Text, nullable=False, default='Пожалуйста, представьтесь и поздоровайтесь с сообществом. У вас есть %TIMEOUT% минут.')
     on_known_new_chat_member_message = Column(Text, nullable=False, default='Добро пожаловать. Снова')
     on_introduce_message = Column(Text, nullable=False, default='Добро пожаловать.')
-    on_kick_message = Column(Text, nullable=False, default='%USER\_MENTION% молчит и покидает чат')
-    notify_message = Column(Text, nullable=False, default='%USER\_MENTION%, пожалуйста, представьтесь и поздоровайтесь с сообществом.')
+    on_kick_message = Column(Text, nullable=False, default=r'%USER\_MENTION% молчит и покидает чат')
+    notify_message = Column(Text, nullable=False, default=r'%USER\_MENTION%, пожалуйста, представьтесь и поздоровайтесь с сообществом.')
     regex_filter = Column(Text, nullable=True)
     filter_only_new_users = Column(Boolean, nullable=False, default=False)
     kick_timeout = Column(Integer, nullable=False, default=0)
