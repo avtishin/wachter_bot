@@ -529,15 +529,31 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_whois_command(update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    message = update.effective_message
 
     if not await authorize_user(context.bot, chat_id, update.effective_user.id):
         return
 
-    if len(context.args) != 1:
-        await update.message.reply_text("Usage: /whois <user_id>")
+    # Определяем user_id из аргумента или reply
+    user_id = None
+    if context.args:
+        arg = context.args[0]
+        try:
+            # Числовой ID
+            user_id = int(arg)
+        except ValueError:
+            # @username — резолвим через Telegram API
+            try:
+                member = await context.bot.get_chat_member(chat_id, arg)
+                user_id = member.user.id
+            except Exception:
+                await message.reply_text(f"Пользователь {arg} не найден в чате.")
+                return
+    elif message.reply_to_message and message.reply_to_message.from_user:
+        user_id = message.reply_to_message.from_user.id
+    else:
+        await message.reply_text("Usage: /whois @username | /whois <user_id> | ответ на сообщение")
         return
-
-    user_id = context.args[0]
 
     with session_scope() as sess:
         user = sess.query(User).filter(
@@ -545,7 +561,7 @@ async def on_whois_command(update, context: ContextTypes.DEFAULT_TYPE):
         ).first()
 
         if user is None:
-            await update.message.reply_text("user not found")
+            await message.reply_text("Пользователь не найден в базе.")
             return
 
-        await update.message.reply_text(f"whois: {user.whois}")
+        await message.reply_text(f"whois: {user.whois}")
