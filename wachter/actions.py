@@ -205,11 +205,21 @@ async def on_approve_command(update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     reply_from = message.reply_to_message.from_user
-    if reply_from is None or reply_from.is_bot:
-        await message.reply_text("Нельзя одобрить бота. Ответьте на сообщение пользователя.")
-        return
 
-    target_user_id = reply_from.id
+    if reply_from is not None and not reply_from.is_bot:
+        # Ответ на сообщение самого пользователя
+        target_user_id = reply_from.id
+    else:
+        # Ответ на сообщение бота — ищем упоминание пользователя в entities
+        target_user_id = None
+        for entity, _ in (message.reply_to_message.parse_entities(["text_mention"]).items()):
+            target_user_id = entity.user.id
+            break
+        if target_user_id is None:
+            await message.reply_text(
+                "Не удалось определить пользователя. Ответьте на сообщение самого пользователя."
+            )
+            return
 
     with session_scope() as sess:
         sess.merge(User(chat_id=chat_id, user_id=target_user_id, whois="Одобрен администратором"))
