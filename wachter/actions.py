@@ -204,7 +204,12 @@ async def on_approve_command(update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text("Ответьте на сообщение пользователя, которого нужно одобрить.")
         return
 
-    target_user_id = message.reply_to_message.from_user.id
+    reply_from = message.reply_to_message.from_user
+    if reply_from is None or reply_from.is_bot:
+        await message.reply_text("Нельзя одобрить бота. Ответьте на сообщение пользователя.")
+        return
+
+    target_user_id = reply_from.id
 
     with session_scope() as sess:
         sess.merge(User(chat_id=chat_id, user_id=target_user_id, whois="Одобрен администратором"))
