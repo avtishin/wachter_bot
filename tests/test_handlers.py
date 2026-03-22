@@ -272,8 +272,17 @@ class TestWhoisCommand:
         update.message.reply_to_message = None
         await on_whois_command(update, mock_context)
         update.message.reply_text.assert_called_once_with(
-            "Usage: /whois @username | /whois <user_id> | ответ на сообщение"
+            "Usage: /whois <user_id> | ответ на сообщение"
         )
+
+    async def test_username_arg_shows_hint(self, mock_context):
+        """@username как аргумент недоступен — Telegram API не поддерживает поиск по нику."""
+        from actions import on_whois_command
+        update = make_update(chat_id=-100)
+        mock_context.args = ["@alice"]
+        await on_whois_command(update, mock_context)
+        text = update.message.reply_text.call_args[0][0]
+        assert "числовой ID" in text
 
     async def test_extra_args_uses_first_arg(self, mock_context):
         from actions import on_whois_command
