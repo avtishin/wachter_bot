@@ -268,3 +268,35 @@ class TestSkipAnonymous:
         update.effective_message.reply_text.assert_called_once_with(
             "Невозможно определить пользователя (анонимное сообщение)."
         )
+
+    async def test_anonymous_issuer_shows_error(self, mock_context):
+        """Анонимный администратор, отправляющий /skip, не вызывает crash."""
+        from actions import on_skip_command
+        from helpers import make_update
+        update = make_update(chat_id=-100, user_id=42)
+        update.effective_message.from_user = None
+        target = MagicMock()
+        target.from_user = MagicMock()
+        target.from_user.id = 99
+        update.effective_message.reply_to_message = target
+        await on_skip_command(update, mock_context)
+        update.effective_message.reply_text.assert_called_once_with(
+            "Невозможно определить администратора (анонимное сообщение)."
+        )
+
+
+# ---------------------------------------------------------------------------
+# on_approve — anonymous from_user
+# ---------------------------------------------------------------------------
+
+class TestApproveAnonymous:
+    async def test_anonymous_issuer_shows_error(self, mock_context):
+        """Анонимный администратор, отправляющий /approve, не вызывает crash."""
+        from actions import on_approve_command
+        from helpers import make_update
+        update = make_update(chat_id=-100)
+        update.effective_message.from_user = None
+        await on_approve_command(update, mock_context)
+        update.effective_message.reply_text.assert_called_once_with(
+            "Невозможно определить администратора (анонимное сообщение)."
+        )
