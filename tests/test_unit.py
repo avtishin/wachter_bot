@@ -160,6 +160,13 @@ class TestFilterMessage:
             m.return_value.__enter__.return_value.query.return_value.filter.return_value.first.return_value = None
             assert not filter_message(-100, "любое сообщение")
 
+    def test_invalid_regex_returns_false(self):
+        """Невалидная regex не должна бросать исключение."""
+        from actions import filter_message
+        with patch("actions.session_scope") as m:
+            m.return_value.__enter__.return_value.query.return_value.filter.return_value.first.return_value = self._mock_chat(r"(unclosed")
+            assert not filter_message(-100, "любое сообщение")
+
 
 # ---------------------------------------------------------------------------
 # is_new_user
@@ -201,3 +208,63 @@ class TestIsChatFiltersNewUsers:
         with patch("actions.session_scope") as m:
             m.return_value.__enter__.return_value.query.return_value.filter.return_value.scalar.return_value = None
             assert not is_chat_filters_new_users(-100)
+
+
+# ---------------------------------------------------------------------------
+# custom_filters
+# ---------------------------------------------------------------------------
+
+class TestFilterBotAdded:
+    def _make_message(self, members):
+        msg = MagicMock()
+        msg.new_chat_members = members
+        return msg
+
+    def _member(self, is_bot=False):
+        m = MagicMock()
+        m.is_bot = is_bot
+        return m
+
+    def test_single_real_user_passes(self):
+        from custom_filters import filter_bot_added
+        msg = self._make_message([self._member(is_bot=False)])
+        assert filter_bot_added.filter(msg)
+
+    def test_single_bot_blocked(self):
+        from custom_filters import filter_bot_added
+        msg = self._make_message([self._member(is_bot=True)])
+        assert not filter_bot_added.filter(msg)
+
+    def test_user_and_bot_together_passes(self):
+        """Если одновременно добавлены пользователь и бот — пропускаем (есть живой участник)."""
+        from custom_filters import filter_bot_added
+        msg = self._make_message([self._member(False), self._member(True)])
+        assert filter_bot_added.filter(msg)
+
+    def test_only_bots_blocked(self):
+        from custom_filters import filter_bot_added
+        msg = self._make_message([self._member(True), self._member(True)])
+        assert not filter_bot_added.filter(msg)
+
+    def test_empty_members_blocked(self):
+        from custom_filters import filter_bot_added
+        msg = self._make_message([])
+        assert not filter_bot_added.filter(msg)
+
+
+# ---------------------------------------------------------------------------
+# on_skip — anonymous from_user
+# ---------------------------------------------------------------------------
+
+class TestSkipAnonymous:
+    async def test_anonymous_reply_shows_error(self, mock_context):
+        """Ответ на сообщение анонимного администратора не вызывает crash."""
+        from actions import on_skip_command
+        from helpers import make_update
+        update = make_update(chat_id=-100, user_id=42)
+        update.effective_message.reply_to_message = MagicMock()
+        update.effective_message.reply_to_message.from_user = None
+        await on_skip_command(update, mock_context)
+        update.effective_message.reply_text.assert_called_once_with(
+            "Невозможно определить пользователя (анонимное сообщение)."
+        )

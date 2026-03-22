@@ -7,6 +7,7 @@
     │
     ▼
 on_new_chat_member()
+    ├─ Участник — бот? → пропустить
     ├─ Пользователь уже в БД (ранее представлялся)?
     │       └─ да → отправить on_known_new_chat_member_message, завершить
     │
@@ -16,13 +17,20 @@ on_new_chat_member()
     ├─ Отправить приветствие (с заменой %USER_MENTION% и %TIMEOUT%)
     │
     └─ kick_timeout > 0?
-            ├─ да, timeout ≥ 10 → запланировать notify job   [notify_{chat_id}_{user_id}]
-            └─ да             → запланировать kick job        [kick_{chat_id}_{user_id}]
+            ├─ да, timeout ≥ notify_delta → запланировать notify job   [notify_{chat_id}_{user_id}]
+            └─ да                         → запланировать kick job      [kick_{chat_id}_{user_id}]
 
-Пользователь пишет #whois (≥20 символов)
+Пользователь пишет сообщение без #whois (активный kick-джоб)
     │
     ▼
-on_hashtag_message()
+on_message()
+    ├─ from_user is None (канал)? → пропустить
+    └─ Отправить on_whois_reminder_message (с заменой %USER_MENTION% и %MIN_LENGTH%)
+
+Пользователь пишет #whois (≥ min_whois_length символов) — новое или отредактированное сообщение
+    │
+    ▼
+on_hashtag_message() / on_edited_message()
     ├─ Записать в БД: User(chat_id, user_id, whois=текст)
     ├─ cancel_kick_jobs() → отменить таймеры и удалить приветственное сообщение
     └─ Если таймер был → ответить on_introduce_message
@@ -32,8 +40,20 @@ on_hashtag_message()
     ▼
 on_kick_timeout()
     ├─ Удалить приветственное сообщение
-    ├─ ban_chat_member(until_date=+60с)  ← временный кик
+    ├─ ban_chat_member(until_date=now + ban_duration мин.)  ← 0 = навсегда
     └─ Отправить on_kick_message (если не "false" / "0")
+```
+
+## Выход участника из чата
+
+```
+Участник покидает чат (сам или кик)
+    │
+    ▼
+on_left_chat_member()
+    ├─ Участник — бот? → пропустить
+    └─ Отправить on_left_chat_member_message (если не "false" / "0")
+       └─ Упоминание берётся из объекта left_chat_member (без API-запроса)
 ```
 
 ## Настройка бота администратором
@@ -42,7 +62,7 @@ on_kick_timeout()
 Администратор добавляет бота в чат
     │
     ▼
-Администратор пишет в чат сообщение с #whois (≥20 символов)
+Администратор пишет в чат сообщение с #whois (≥ min_whois_length символов)
 → Записывается в таблицу users
     │
     ▼
@@ -77,8 +97,9 @@ on_start_command()
     └─ cancel_kick_jobs() для целевого пользователя
        └─ Пользователь НЕ записывается в БД → при следующем входе снова попросят представиться
 
-/approve (в ответ на сообщение)
-    ├─ Проверить, что автор команды — admin
+/approve (в ответ на сообщение пользователя или на приветствие бота)
+    ├─ Проверить, что автор команды — admin (иначе — сообщение об ошибке)
+    ├─ Если ответ на сообщение бота → извлечь user_id из text_mention entity
     ├─ Записать User в БД (whois = "Одобрен администратором")
     └─ cancel_kick_jobs() для целевого пользователя
        └─ Пользователь записан → при следующем входе будет приветствоваться как знакомый
@@ -98,8 +119,8 @@ on_message() или on_forward()
     └─ Совпадение с regex?
             ├─ Удалить сообщение
             ├─ cancel_kick_jobs()
-            ├─ Отправить on_filtered_message
-            └─ ban_chat_member(until_date=+60с)
+            ├─ Отправить on_filtered_message (из настроек чата)
+            └─ ban_chat_member(until_date=now + ban_duration мин.)
 ```
 
 ## Жизненный цикл сообщений бота

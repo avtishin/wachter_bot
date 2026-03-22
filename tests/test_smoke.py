@@ -46,8 +46,8 @@ def test_helper_functions_are_coroutines():
 def test_constants_exist():
     import constants
     required = [
-        "help_message", "min_whois_length", "notify_delta",
-        "skip_on_new_chat_member_message", "on_filtered_message",
+        "help_message",
+        "skip_on_new_chat_member_message",
         "on_success_skip", "on_failed_skip", "on_set_new_message",
         "on_failed_kick_response", "Actions",
     ]
@@ -57,8 +57,9 @@ def test_constants_exist():
 
 def test_constants_values_are_sane():
     import constants
-    assert constants.min_whois_length > 0
-    assert constants.notify_delta > 0
+    from model import Chat
+    assert Chat.__table__.columns["min_whois_length"].default.arg > 0
+    assert Chat.__table__.columns["notify_delta"].default.arg > 0
     assert "%TIMEOUT%" in constants.help_message
     assert "%USER_MENTION%" in constants.help_message
 
@@ -106,3 +107,18 @@ def test_default_welcome_message_has_timeout_placeholder():
     from model import Chat
     col = Chat.__table__.columns["on_new_chat_member_message"]
     assert "%TIMEOUT%" in col.default.arg
+
+
+def test_model_has_no_orm_to_dict():
+    """orm_to_dict был мёртвым кодом с некорректным _asdict() — должен быть удалён."""
+    import model
+    assert not hasattr(model, "orm_to_dict")
+
+
+def test_session_scope_catches_only_exception():
+    """session_scope не должен перехватывать KeyboardInterrupt."""
+    import inspect
+    import model
+    src = inspect.getsource(model.session_scope)
+    assert "except Exception" in src
+    assert "except:" not in src

@@ -12,7 +12,7 @@ pytest tests/test_models.py      # интеграция с БД
 pytest -k "test_approve"         # один тест по имени
 ```
 
-76 тестов, ~0.7 сек. Реальный Telegram и PostgreSQL не нужны.
+92 теста, ~0.9 сек. Реальный Telegram и PostgreSQL не нужны.
 
 ## Структура
 

@@ -18,6 +18,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _ban_until(ban_duration_minutes: int):
+    """Возвращает until_date для ban_chat_member. 0 = бессрочный бан."""
+    if ban_duration_minutes == 0:
+        return None
+    return datetime.now() + timedelta(minutes=ban_duration_minutes)
+
+
 async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
     logger.warning(f'Update "{update}" caused error "{context.error}"')
 
@@ -70,10 +77,14 @@ async def on_skip_command(update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if message.reply_to_message is not None:
+        if message.reply_to_message.from_user is None:
+            await message.reply_text("Невозможно определить пользователя (анонимное сообщение).")
+            return
         target_user_id = message.reply_to_message.from_user.id
         issuer_user_id = message.from_user.id
 
         if not await authorize_user(context.bot, chat_id, issuer_user_id):
+            await message.reply_text("Эта команда доступна только администраторам.")
             return
 
         removed = await cancel_kick_jobs(context.bot, context.job_queue, chat_id, target_user_id)
@@ -99,6 +110,8 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         notify_delta = chat.notify_delta
 
     for member in update.message.new_chat_members:
+        if member.is_bot:
+            continue
         user_id = member.id
 
         await cancel_kick_jobs(context.bot, context.job_queue, chat_id, user_id)
@@ -143,6 +156,9 @@ async def on_notify_timeout(context: ContextTypes.DEFAULT_TYPE):
     data = context.job.data
     with session_scope() as sess:
         chat = sess.query(Chat).filter(Chat.id == data["chat_id"]).first()
+        if chat is None:
+            return
+        notify_delta = chat.notify_delta
         msg_markdown = await mention_markdown(
             context.bot, data["chat_id"], data["user_id"], chat.notify_message
         )
@@ -151,7 +167,7 @@ async def on_notify_timeout(context: ContextTypes.DEFAULT_TYPE):
     )
     context.job_queue.run_once(
         delete_message,
-        constants.notify_delta * 60,
+        notify_delta * 60,
         data={"chat_id": data["chat_id"], "message_id": message.message_id},
     )
 
@@ -172,20 +188,23 @@ async def on_kick_timeout(context: ContextTypes.DEFAULT_TYPE):
         pass
 
     try:
+        with session_scope() as sess:
+            chat = sess.query(Chat).filter(Chat.id == data["chat_id"]).first()
+            ban_duration = chat.ban_duration
+            kick_msg = chat.on_kick_message
+
         await context.bot.ban_chat_member(
             data["chat_id"],
             data["user_id"],
-            until_date=datetime.now() + timedelta(seconds=60),
+            until_date=_ban_until(ban_duration),
         )
-        with session_scope() as sess:
-            chat = sess.query(Chat).filter(Chat.id == data["chat_id"]).first()
-            if chat.on_kick_message.lower() not in ["false", "0"]:
-                msg_markdown = await mention_markdown(
-                    context.bot, data["chat_id"], data["user_id"], chat.on_kick_message
-                )
-                await context.bot.send_message(
-                    data["chat_id"], text=msg_markdown, parse_mode=ParseMode.MARKDOWN
-                )
+        if kick_msg.lower() not in ["false", "0"]:
+            msg_markdown = await mention_markdown(
+                context.bot, data["chat_id"], data["user_id"], kick_msg
+            )
+            await context.bot.send_message(
+                data["chat_id"], text=msg_markdown, parse_mode=ParseMode.MARKDOWN
+            )
     except Exception as e:
         logger.error(e)
         await context.bot.send_message(data["chat_id"], text=constants.on_failed_kick_response)
@@ -252,14 +271,15 @@ async def on_hashtag_message(update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     chat_id = message.chat_id
 
-    if (
-        "#whois" in message.parse_entities(types=["hashtag"]).values()
-        and len(message.text or "") >= constants.min_whois_length
-        and chat_id < 0
-    ):
-        await _process_whois(context.bot, context.job_queue, message, chat_id, message.from_user.id)
-    else:
-        await on_message(update, context)
+    has_whois = "#whois" in message.parse_entities(types=["hashtag"]).values()
+    if has_whois and chat_id < 0 and message.from_user is not None:
+        with session_scope() as sess:
+            chat = sess.query(Chat).filter(Chat.id == chat_id).first()
+            min_len = chat.min_whois_length if chat else 20
+        if len(message.text or "") >= min_len:
+            await _process_whois(context.bot, context.job_queue, message, chat_id, message.from_user.id)
+            return
+    await on_message(update, context)
 
 
 async def on_edited_message(update, context: ContextTypes.DEFAULT_TYPE):
@@ -267,11 +287,14 @@ async def on_edited_message(update, context: ContextTypes.DEFAULT_TYPE):
     message = update.edited_message
     if message is None or message.chat_id >= 0:
         return
-    if (
-        "#whois" in message.parse_entities(types=["hashtag"]).values()
-        and len(message.text or "") >= constants.min_whois_length
-    ):
-        await _process_whois(context.bot, context.job_queue, message, message.chat_id, message.from_user.id)
+    if "#whois" not in message.parse_entities(types=["hashtag"]).values():
+        return
+    chat_id = message.chat_id
+    with session_scope() as sess:
+        chat = sess.query(Chat).filter(Chat.id == chat_id).first()
+        min_len = chat.min_whois_length if chat else 20
+    if len(message.text or "") >= min_len:
+        await _process_whois(context.bot, context.job_queue, message, chat_id, message.from_user.id)
 
 
 async def on_start_command(update, context: ContextTypes.DEFAULT_TYPE):
@@ -309,7 +332,14 @@ async def on_start_command(update, context: ContextTypes.DEFAULT_TYPE):
 async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    data = json.loads(query.data)
+    try:
+        data = json.loads(query.data)
+    except (json.JSONDecodeError, TypeError):
+        await query.answer(text="Устаревшая кнопка — откройте меню заново через /start.", show_alert=True)
+        return
+    if "action" not in data:
+        await query.answer()
+        return
 
     # Для всех действий с конкретным чатом проверяем права перед подтверждением
     if "chat_id" in data and not await authorize_user(context.bot, data["chat_id"], user_id):
@@ -362,6 +392,12 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
                 {"chat_id": selected_chat_id, "action": Actions.set_on_left_chat_member_message}))],
             [InlineKeyboardButton("Изменить напоминание написать #whois", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_on_whois_reminder_message}))],
+            [InlineKeyboardButton("Изменить сообщение при бане (regex)", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_on_filtered_message}))],
+            [InlineKeyboardButton("Изменить мин. длину #whois", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_min_whois_length}))],
+            [InlineKeyboardButton("Изменить длительность бана (мин.)", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_ban_duration}))],
             [InlineKeyboardButton("Изменить regex для фильтра сообщений", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_regex_filter}))],
             [InlineKeyboardButton("Изменить фильтрацию только для новых пользователей", callback_data=json.dumps(
@@ -381,6 +417,9 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
         Actions.set_on_kick_message,
         Actions.set_on_left_chat_member_message,
         Actions.set_on_whois_reminder_message,
+        Actions.set_on_filtered_message,
+        Actions.set_min_whois_length,
+        Actions.set_ban_duration,
         Actions.set_regex_filter,
         Actions.set_filter_only_new_users,
     ]:
@@ -397,8 +436,14 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
         ]]
         with session_scope() as sess:
             chat = sess.query(Chat).filter(Chat.id == data["chat_id"]).first()
+            if chat is None:
+                chat = Chat(id=data["chat_id"])
+                sess.add(chat)
+                sess.flush()
             await query.edit_message_text(
-                text=constants.get_settings_message.format(**chat.__dict__),
+                text=constants.get_settings_message.format(**{
+                    k: v for k, v in chat.__dict__.items() if not k.startswith("_")
+                }),
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
@@ -412,30 +457,40 @@ def filter_message(chat_id, message_text):
         chat = sess.query(Chat).filter(Chat.id == chat_id).first()
         if chat is None or chat.regex_filter is None:
             return False
-        return re.search(chat.regex_filter, message_text)
+        try:
+            return re.search(chat.regex_filter, message_text)
+        except re.error:
+            logger.warning(f"Invalid regex filter for chat {chat_id}: {chat.regex_filter!r}")
+            return False
 
 
 async def on_forward(update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     chat_id = message.chat_id
+
+    if message.from_user is None or chat_id > 0:
+        return
     user_id = message.from_user.id
 
-    if chat_id > 0 or await authorize_user(context.bot, chat_id, user_id):
+    if await authorize_user(context.bot, chat_id, user_id):
         return
 
     with session_scope() as sess:
         chat = sess.query(Chat).filter(Chat.id == chat_id).first()
         if chat is None or chat.regex_filter is None:
             return
+        if chat.filter_only_new_users and not is_new_user(chat_id, user_id):
+            return
+        filtered_msg = chat.on_filtered_message
+        ban_duration = chat.ban_duration
 
-    removed = await cancel_kick_jobs(context.bot, context.job_queue, chat_id, user_id)
-    if removed:
-        await context.bot.delete_message(chat_id, message.message_id)
-        msg_markdown = await mention_markdown(context.bot, chat_id, user_id, constants.on_filtered_message)
-        await context.bot.send_message(chat_id, text=msg_markdown, parse_mode=ParseMode.MARKDOWN)
-        await context.bot.ban_chat_member(
-            chat_id, user_id, until_date=datetime.now() + timedelta(seconds=60)
-        )
+    await cancel_kick_jobs(context.bot, context.job_queue, chat_id, user_id)
+    await context.bot.delete_message(chat_id, message.message_id)
+    msg_markdown = await mention_markdown(context.bot, chat_id, user_id, filtered_msg)
+    await context.bot.send_message(chat_id, text=msg_markdown, parse_mode=ParseMode.MARKDOWN)
+    await context.bot.ban_chat_member(
+        chat_id, user_id, until_date=_ban_until(ban_duration)
+    )
 
 
 def is_new_user(chat_id, user_id):
@@ -454,14 +509,16 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = message.chat_id
 
     if chat_id < 0:
+        if message.from_user is None:
+            return
         user_id = message.from_user.id
         message_text = message.text or message.caption
         filter_mask = (
             not await authorize_user(context.bot, chat_id, user_id)
             and filter_message(chat_id, message_text)
         )
-        if is_chat_filters_new_users(chat_id):
-            filter_mask = filter_mask and is_new_user(chat_id, user_id)
+        if filter_mask and is_chat_filters_new_users(chat_id):
+            filter_mask = is_new_user(chat_id, user_id)
 
         if not filter_mask and not (message.text or "").startswith("/"):
             kick_jobs = context.job_queue.get_jobs_by_name(f"kick_{chat_id}_{user_id}")
@@ -469,19 +526,23 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
                 with session_scope() as sess:
                     chat = sess.query(Chat).filter(Chat.id == chat_id).first()
                     reminder_template = chat.on_whois_reminder_message if chat else None
+                    min_len = str(chat.min_whois_length) if chat else "20"
                 if reminder_template:
                     reminder = await mention_markdown(context.bot, chat_id, user_id, reminder_template)
+                    reminder = reminder.replace("%MIN\\_LENGTH%", min_len).replace("%MIN_LENGTH%", min_len)
                     await message.reply_text(reminder, parse_mode=ParseMode.MARKDOWN)
 
         if filter_mask:
+            with session_scope() as sess:
+                chat = sess.query(Chat).filter(Chat.id == chat_id).first()
+                filtered_msg = chat.on_filtered_message if chat else ""
+                ban_duration = chat.ban_duration if chat else 1
             await context.bot.delete_message(chat_id, message.message_id)
-            msg_markdown = await mention_markdown(
-                context.bot, chat_id, user_id, constants.on_filtered_message
-            )
+            msg_markdown = await mention_markdown(context.bot, chat_id, user_id, filtered_msg)
             await cancel_kick_jobs(context.bot, context.job_queue, chat_id, user_id)
             await context.bot.send_message(chat_id, text=msg_markdown, parse_mode=ParseMode.MARKDOWN)
             await context.bot.ban_chat_member(
-                chat_id, user_id, until_date=datetime.now() + timedelta(seconds=60)
+                chat_id, user_id, until_date=_ban_until(ban_duration)
             )
     else:
         user_id = chat_id
@@ -490,12 +551,17 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
         if action is None:
             return
 
-        chat_id = context.user_data["chat_id"]
+        chat_id = context.user_data.get("chat_id")
+        if chat_id is None:
+            context.user_data["action"] = None
+            return
 
         if not await authorize_user(context.bot, chat_id, user_id):
             await message.reply_text("У вас нет прав для изменения настроек этого чата.")
             context.user_data["action"] = None
             return
+
+        numeric_saved = False
 
         if action == Actions.set_kick_timeout:
             try:
@@ -504,10 +570,10 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 await message.reply_text(constants.on_failed_set_kick_timeout_response)
                 return
-
             with session_scope() as sess:
                 sess.merge(Chat(id=chat_id, kick_timeout=timeout))
             context.user_data["action"] = None
+            numeric_saved = True
 
         elif action == Actions.set_notify_delta:
             try:
@@ -516,11 +582,36 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 await message.reply_text("Введите целое неотрицательное число (минут до кика для напоминания, 0 — отключить).")
                 return
-
             with session_scope() as sess:
                 sess.merge(Chat(id=chat_id, notify_delta=delta))
             context.user_data["action"] = None
+            numeric_saved = True
 
+        elif action == Actions.set_min_whois_length:
+            try:
+                length = int(message.text)
+                assert length > 0
+            except Exception:
+                await message.reply_text("Введите целое положительное число (минимальная длина #whois сообщения).")
+                return
+            with session_scope() as sess:
+                sess.merge(Chat(id=chat_id, min_whois_length=length))
+            context.user_data["action"] = None
+            numeric_saved = True
+
+        elif action == Actions.set_ban_duration:
+            try:
+                duration = int(message.text)
+                assert duration >= 0
+            except Exception:
+                await message.reply_text("Введите целое неотрицательное число в минутах (0 — бессрочный бан).")
+                return
+            with session_scope() as sess:
+                sess.merge(Chat(id=chat_id, ban_duration=duration))
+            context.user_data["action"] = None
+            numeric_saved = True
+
+        if numeric_saved:
             keyboard = [[
                 InlineKeyboardButton("К настройке чата", callback_data=json.dumps(
                     {"chat_id": chat_id, "action": Actions.select_chat})),
@@ -528,7 +619,7 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
                     {"action": Actions.start_select_chat})),
             ]]
             await message.reply_text(
-                constants.on_success_set_kick_timeout_response,
+                constants.on_set_new_message,
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
 
@@ -538,6 +629,9 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
             Actions.set_on_known_new_chat_member_message_response,
             Actions.set_on_successful_introducion_response,
             Actions.set_on_kick_message,
+            Actions.set_on_left_chat_member_message,
+            Actions.set_on_whois_reminder_message,
+            Actions.set_on_filtered_message,
             Actions.set_regex_filter,
             Actions.set_filter_only_new_users,
         ]:
@@ -557,6 +651,8 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
                     chat = Chat(id=chat_id, on_left_chat_member_message=value)
                 elif action == Actions.set_on_whois_reminder_message:
                     chat = Chat(id=chat_id, on_whois_reminder_message=value)
+                elif action == Actions.set_on_filtered_message:
+                    chat = Chat(id=chat_id, on_filtered_message=value)
                 elif action == Actions.set_filter_only_new_users:
                     chat = Chat(id=chat_id, filter_only_new_users=value.lower() in ["true", "1"])
                 elif action == Actions.set_regex_filter:
@@ -632,5 +728,7 @@ async def on_left_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         template = chat.on_left_chat_member_message
     if template.lower() in ["false", "0"]:
         return
-    msg_markdown = await mention_markdown(context.bot, chat_id, member.id, template)
-    await update.message.reply_text(msg_markdown, parse_mode=ParseMode.MARKDOWN)
+    # Используем объект участника напрямую — get_chat_member ненадёжен после выхода
+    user_mention = member.mention_markdown() if member.name else str(member.id)
+    msg = template.replace("%USER\\_MENTION%", user_mention)
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)

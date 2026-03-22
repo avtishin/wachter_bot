@@ -46,7 +46,9 @@ class TestSkipCommand:
         update.effective_message.reply_to_message.from_user.id = 99
         # mock_bot.status = "member" по умолчанию
         await on_skip_command(update, mock_context)
-        update.effective_message.reply_text.assert_not_called()
+        update.effective_message.reply_text.assert_called_once_with(
+            "Эта команда доступна только администраторам."
+        )
 
     async def test_admin_skip_cancels_job_and_replies(self, admin_context):
         from actions import on_skip_command
@@ -161,6 +163,7 @@ class TestHashtagMessage:
 
         mock_chat = MagicMock()
         mock_chat.on_introduce_message = "Добро пожаловать."
+        mock_chat.min_whois_length = 20
         mock_sess = MagicMock()
         mock_sess.query.return_value.filter.return_value.first.return_value = mock_chat
 
@@ -181,6 +184,7 @@ class TestHashtagMessage:
         )
         mock_chat = MagicMock()
         mock_chat.on_introduce_message = "Добро пожаловать."
+        mock_chat.min_whois_length = 20
         mock_sess = MagicMock()
         mock_sess.query.return_value.filter.return_value.first.return_value = mock_chat
 
@@ -199,6 +203,7 @@ class TestHashtagMessage:
 
         mock_chat = MagicMock()
         mock_chat.on_introduce_message = "Добро пожаловать."
+        mock_chat.min_whois_length = 20
         mock_sess = MagicMock()
         mock_sess.query.return_value.filter.return_value.first.return_value = mock_chat
 
@@ -289,6 +294,7 @@ class TestNewChatMember:
         for uid in user_ids:
             m = MagicMock()
             m.id = uid
+            m.is_bot = False
             members.append(m)
         update.message.new_chat_members = members
         update.effective_chat.id = chat_id
@@ -354,6 +360,29 @@ class TestNewChatMember:
             await on_new_chat_member(update, mock_context)
 
         assert update.message.reply_text.call_count == 3
+
+    async def test_bot_member_skipped(self, mock_context):
+        """Бот в списке new_chat_members не должен получать приветствие."""
+        from actions import on_new_chat_member
+        update = make_update(chat_id=-100)
+        bot_member = MagicMock()
+        bot_member.id = 555
+        bot_member.is_bot = True
+        update.message.new_chat_members = [bot_member]
+        update.effective_chat.id = -100
+
+        mock_chat = MagicMock()
+        mock_chat.on_new_chat_member_message = "Привет!"
+        mock_chat.on_known_new_chat_member_message = "Снова."
+        mock_chat.kick_timeout = 0
+        mock_sess = MagicMock()
+        mock_sess.query.return_value.filter.return_value.first.return_value = mock_chat
+
+        with patch("actions.session_scope") as mock_scope:
+            mock_scope.return_value.__enter__.return_value = mock_sess
+            await on_new_chat_member(update, mock_context)
+
+        update.message.reply_text.assert_not_called()
 
     async def test_skip_message_sends_nothing(self, mock_context):
         from actions import on_new_chat_member
@@ -431,3 +460,76 @@ class TestNewChatMember:
         assert len(sent_texts) == 1
         assert "15 мин." in sent_texts[0]
         assert "%TIMEOUT%" not in sent_texts[0]
+
+
+# ---------------------------------------------------------------------------
+# on_forward
+# ---------------------------------------------------------------------------
+
+class TestOnForward:
+    def _make_forward_update(self, chat_id=-100, user_id=42):
+        update = make_update(chat_id=chat_id, user_id=user_id)
+        update.effective_message.chat_id = chat_id
+        update.effective_message.from_user.id = user_id
+        update.effective_message.message_id = 555
+        return update
+
+    def _mock_chat_with_regex(self, regex="spam", filter_only_new=False):
+        chat = MagicMock()
+        chat.regex_filter = regex
+        chat.filter_only_new_users = filter_only_new
+        chat.on_filtered_message = r"%USER\_MENTION% забанен"
+        chat.ban_duration = 1
+        return chat
+
+    async def test_admin_is_not_filtered(self, admin_context):
+        from actions import on_forward
+        update = self._make_forward_update()
+        # admin_context.bot возвращает creator — не должен быть забанен
+        await on_forward(update, admin_context)
+        admin_context.bot.ban_chat_member.assert_not_called()
+
+    async def test_dm_is_ignored(self, mock_context):
+        from actions import on_forward
+        update = self._make_forward_update(chat_id=42)  # DM
+        await on_forward(update, mock_context)
+        mock_context.bot.ban_chat_member.assert_not_called()
+
+    async def test_no_regex_filter_ignores(self, mock_context):
+        from actions import on_forward
+        update = self._make_forward_update()
+        mock_chat = self._mock_chat_with_regex(regex=None)
+        with patch("actions.session_scope") as m:
+            m.return_value.__enter__.return_value.query.return_value.filter.return_value.first.return_value = mock_chat
+            await on_forward(update, mock_context)
+        mock_context.bot.ban_chat_member.assert_not_called()
+
+    async def test_new_user_with_regex_is_banned(self, mock_context):
+        from actions import on_forward
+        update = self._make_forward_update()
+        mock_chat = self._mock_chat_with_regex(filter_only_new=False)
+        with patch("actions.session_scope") as m:
+            m.return_value.__enter__.return_value.query.return_value.filter.return_value.first.return_value = mock_chat
+            with patch("actions.is_new_user", return_value=True):
+                await on_forward(update, mock_context)
+        mock_context.bot.ban_chat_member.assert_called_once()
+
+    async def test_known_user_skipped_when_filter_only_new(self, mock_context):
+        from actions import on_forward
+        update = self._make_forward_update()
+        mock_chat = self._mock_chat_with_regex(filter_only_new=True)
+        with patch("actions.session_scope") as m:
+            m.return_value.__enter__.return_value.query.return_value.filter.return_value.first.return_value = mock_chat
+            with patch("actions.is_new_user", return_value=False):
+                await on_forward(update, mock_context)
+        mock_context.bot.ban_chat_member.assert_not_called()
+
+    async def test_known_user_banned_when_filter_all(self, mock_context):
+        from actions import on_forward
+        update = self._make_forward_update()
+        mock_chat = self._mock_chat_with_regex(filter_only_new=False)
+        with patch("actions.session_scope") as m:
+            m.return_value.__enter__.return_value.query.return_value.filter.return_value.first.return_value = mock_chat
+            with patch("actions.is_new_user", return_value=False):
+                await on_forward(update, mock_context)
+        mock_context.bot.ban_chat_member.assert_called_once()

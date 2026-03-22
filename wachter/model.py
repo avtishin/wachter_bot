@@ -1,11 +1,9 @@
 from sqlalchemy import create_engine
-from sqlalchemy import Column, Integer, String, Text, Boolean, BigInteger
+from sqlalchemy import Column, Integer, Text, Boolean, BigInteger
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm.session import sessionmaker
 from contextlib import contextmanager
-import enum
 import os
-from sqlalchemy import inspect
 
 Base = declarative_base()
 
@@ -20,12 +18,15 @@ class Chat(Base):
     on_introduce_message = Column(Text, nullable=False, default='Добро пожаловать.')
     on_kick_message = Column(Text, nullable=False, default=r'%USER\_MENTION% молчит и покидает чат')
     on_left_chat_member_message = Column(Text, nullable=False, default=r'%USER\_MENTION% покинул чат')
-    on_whois_reminder_message = Column(Text, nullable=False, default=r'%USER\_MENTION%, напишите сообщение с тегом \#whois (минимум 20 символов), чтобы представиться.')
+    on_whois_reminder_message = Column(Text, nullable=False, default=r'%USER\_MENTION%, напишите сообщение с тегом \#whois (минимум %MIN\_LENGTH% символов), чтобы представиться.')
+    on_filtered_message = Column(Text, nullable=False, default=r'%USER\_MENTION%, вы были забанены т.к ваше сообщение содержит репост или слово из спам листа')
     notify_message = Column(Text, nullable=False, default=r'%USER\_MENTION%, пожалуйста, представьтесь и поздоровайтесь с сообществом.')
     regex_filter = Column(Text, nullable=True)
     filter_only_new_users = Column(Boolean, nullable=False, default=False)
     kick_timeout = Column(Integer, nullable=False, default=0)
     notify_delta = Column(Integer, nullable=False, default=10)
+    min_whois_length = Column(Integer, nullable=False, default=20)
+    ban_duration = Column(Integer, nullable=False, default=1)
 
     def __repr__(self):
         return f"<Chat(id={self.id})>"
@@ -56,11 +57,9 @@ def session_scope():
     try:
         yield session
         session.commit()
-    except:
+    except Exception:
         session.rollback()
         raise
     finally:
         session.close()
 
-def orm_to_dict(obj):
-    return obj._asdict()

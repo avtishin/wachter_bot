@@ -25,7 +25,7 @@ Handler (actions.py)          PicklePersistence
 | `bot.py` | Инициализация `Application`, регистрация хендлеров, запуск polling |
 | `actions.py` | Вся бизнес-логика: хендлеры событий, планировщик таймеров, ответы |
 | `model.py` | SQLAlchemy ORM (`Chat`, `User`), `session_scope()` |
-| `constants.py` | Шаблоны сообщений, числовые константы, `Actions` enum |
+| `constants.py` | Статические шаблоны сообщений, `Actions` enum для callback_data (числовые настройки — в модели `Chat`) |
 | `custom_filters.py` | Кастомный фильтр: детектирует что добавляют живого пользователя, а не бота |
 
 ## Job Queue и именование джобов
