@@ -165,7 +165,10 @@ class TestHashtagMessage:
         mock_chat.on_introduce_message = "Добро пожаловать."
         mock_chat.min_whois_length = 20
         mock_sess = MagicMock()
-        mock_sess.query.return_value.filter.return_value.first.return_value = mock_chat
+        # Запросы: Chat (on_hashtag_message) → Chat (_process_whois) → User (_process_whois, None = новый)
+        mock_sess.query.return_value.filter.return_value.first.side_effect = [
+            mock_chat, mock_chat, None
+        ]
 
         with patch("actions.session_scope") as mock_scope:
             mock_scope.return_value.__enter__.return_value = mock_sess
@@ -185,8 +188,12 @@ class TestHashtagMessage:
         mock_chat = MagicMock()
         mock_chat.on_introduce_message = "Добро пожаловать."
         mock_chat.min_whois_length = 20
+        mock_user = MagicMock()
         mock_sess = MagicMock()
-        mock_sess.query.return_value.filter.return_value.first.return_value = mock_chat
+        # Chat (on_hashtag_message) → Chat (_process_whois) → User (_process_whois, уже есть, но kick активен)
+        mock_sess.query.return_value.filter.return_value.first.side_effect = [
+            mock_chat, mock_chat, mock_user
+        ]
 
         with patch("actions.session_scope") as mock_scope:
             mock_scope.return_value.__enter__.return_value = mock_sess
@@ -195,7 +202,7 @@ class TestHashtagMessage:
         update.effective_message.reply_text.assert_called_once()
 
     async def test_valid_whois_without_pending_job_no_reply(self, mock_context):
-        """Пользователь написал #whois, но таймер уже не висит — молча записываем."""
+        """Новый пользователь написал #whois без таймера — молча записываем."""
         from actions import on_hashtag_message
         long_text = "#whois " + "Привет, меня зовут Александр, я разработчик"
         update = self._make_whois_update(long_text)
@@ -205,12 +212,41 @@ class TestHashtagMessage:
         mock_chat.on_introduce_message = "Добро пожаловать."
         mock_chat.min_whois_length = 20
         mock_sess = MagicMock()
-        mock_sess.query.return_value.filter.return_value.first.return_value = mock_chat
+        mock_sess.query.return_value.filter.return_value.first.side_effect = [
+            mock_chat, mock_chat, None  # Chat, Chat, нет пользователя в БД
+        ]
 
         with patch("actions.session_scope") as mock_scope:
             mock_scope.return_value.__enter__.return_value = mock_sess
             await on_hashtag_message(update, mock_context)
 
+        update.effective_message.reply_text.assert_not_called()
+
+    async def test_existing_user_without_kick_job_not_overwritten(self, mock_context):
+        """Уже зарегистрированный пользователь без активного kick-джоба не должен перезаписываться."""
+        from actions import on_hashtag_message
+        long_text = "#whois " + "Привет, меня зовут Александр, я разработчик"
+        update = self._make_whois_update(long_text)
+        mock_context.job_queue.get_jobs_by_name.return_value = []  # нет kick-джоба
+
+        mock_chat = MagicMock()
+        mock_chat.on_introduce_message = "Добро пожаловать."
+        mock_chat.min_whois_length = 20
+        mock_user = MagicMock()  # пользователь уже есть в БД
+        mock_sess = MagicMock()
+        # on_hashtag_message: Chat → _process_whois: Chat, User
+        mock_sess.query.return_value.filter.return_value.first.side_effect = [
+            mock_chat,   # on_hashtag_message: Chat (min_whois_length)
+            mock_chat,   # _process_whois: Chat (on_introduce_message)
+            mock_user,   # _process_whois: User — уже существует
+        ]
+
+        with patch("actions.session_scope") as mock_scope:
+            mock_scope.return_value.__enter__.return_value = mock_sess
+            await on_hashtag_message(update, mock_context)
+
+        # merge не должен вызываться — whois уже есть, джоба нет
+        mock_sess.merge.assert_not_called()
         update.effective_message.reply_text.assert_not_called()
 
     async def test_dm_hashtag_falls_through(self, mock_context):
@@ -265,9 +301,11 @@ class TestWhoisCommand:
             mock_scope.return_value.__enter__.return_value = mock_sess
             await on_whois_command(update, mock_context)
 
-        update.message.reply_text.assert_called_once_with(
-            "whois: Привет, я Алиса, фронтенд-разработчик"
-        )
+        # Должно быть вызвано с упоминанием пользователя
+        call_args = update.message.reply_text.call_args
+        assert call_args is not None
+        text = call_args[0][0]
+        assert "whois: Привет, я Алиса, фронтенд-разработчик" in text
 
     async def test_user_not_found(self, mock_context):
         from actions import on_whois_command

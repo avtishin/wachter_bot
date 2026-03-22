@@ -81,6 +81,9 @@ async def on_skip_command(update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("Невозможно определить пользователя (анонимное сообщение).")
             return
         target_user_id = message.reply_to_message.from_user.id
+        if message.from_user is None:
+            await message.reply_text("Невозможно определить администратора (анонимное сообщение).")
+            return
         issuer_user_id = message.from_user.id
 
         if not await authorize_user(context.bot, chat_id, issuer_user_id):
@@ -217,6 +220,10 @@ async def on_approve_command(update, context: ContextTypes.DEFAULT_TYPE):
     if chat_id > 0:
         return
 
+    if message.from_user is None:
+        await message.reply_text("Невозможно определить администратора (анонимное сообщение).")
+        return
+
     if not await authorize_user(context.bot, chat_id, message.from_user.id):
         await message.reply_text("Эта команда доступна только администраторам.")
         return
@@ -250,7 +257,11 @@ async def on_approve_command(update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _process_whois(bot, job_queue, message, chat_id, user_id):
-    """Сохраняет whois и отменяет кик. Возвращает True если кик был активен."""
+    """Сохраняет whois и отменяет кик. Возвращает True если кик был активен.
+    Не перезаписывает whois, если пользователь уже в БД и нет активного kick-джоба
+    (защита от случайной перезаписи при упоминании тега в разговоре)."""
+    has_kick_job = bool(job_queue.get_jobs_by_name(f"kick_{chat_id}_{user_id}"))
+
     with session_scope() as sess:
         chat = sess.query(Chat).filter(Chat.id == chat_id).first()
         if chat is None:
@@ -258,7 +269,16 @@ async def _process_whois(bot, job_queue, message, chat_id, user_id):
             sess.add(chat)
             sess.flush()
         introduce_message = chat.on_introduce_message
-        sess.merge(User(chat_id=chat_id, user_id=user_id, whois=message.text))
+
+        existing_user = sess.query(User).filter(
+            User.chat_id == chat_id, User.user_id == user_id
+        ).first()
+
+        # Перезаписываем только если: пользователь новый ИЛИ есть активный kick-джоб
+        if existing_user is None or has_kick_job:
+            sess.merge(User(chat_id=chat_id, user_id=user_id, whois=message.text))
+        else:
+            return False
 
     removed = await cancel_kick_jobs(bot, job_queue, chat_id, user_id)
     if removed:
@@ -286,6 +306,8 @@ async def on_edited_message(update, context: ContextTypes.DEFAULT_TYPE):
     """Принимает #whois из отредактированного сообщения."""
     message = update.edited_message
     if message is None or message.chat_id >= 0:
+        return
+    if message.from_user is None:
         return
     if "#whois" not in message.parse_entities(types=["hashtag"]).values():
         return
@@ -713,7 +735,13 @@ async def on_whois_command(update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("Пользователь не найден в базе.")
             return
 
-        await message.reply_text(f"whois: {user.whois}")
+        whois_text = user.whois
+
+    mention = await mention_markdown(context.bot, chat_id, user_id, "%USER\\_MENTION%")
+    await message.reply_text(
+        f"{mention}\nwhois: {whois_text}",
+        parse_mode=ParseMode.MARKDOWN,
+    )
 
 
 async def on_left_chat_member(update, context: ContextTypes.DEFAULT_TYPE):

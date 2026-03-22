@@ -75,5 +75,5 @@ PostgreSQL + SQLAlchemy. Две таблицы:
 
 ## Testing
 
-92 теста, ~0.9 сек, без реального Telegram и PostgreSQL. Используется SQLite.
+95 тестов, ~0.8 сек, без реального Telegram и PostgreSQL. Используется SQLite.
 Подробнее о конвенциях и добавлении тестов: [docs/testing.md](docs/testing.md)
