@@ -7,19 +7,27 @@ on_failed_set_kick_timeout_response = 'Таймаут должен быть це
 on_failed_kick_response = 'Пользователь самостоятельно покинул чат.'
 on_failed_skip = 'Ответьте на сообщение пользователя которого не нужно кикать'
 on_success_skip = 'Теперь пользователю не нужно представляться.'
-on_success_kick_response = "%USER\_MENTION% не представился и был кикнут из чата."
+on_success_kick_response = r"%USER\_MENTION% не представился и был кикнут из чата."
 on_start_command = 'Выберите чат и действие:'
-on_filtered_message = '%USER\_MENTION%, вы были забанены т.к ваше сообщение содержит репост или слово из спам листа'
 skip_on_new_chat_member_message = "%SKIP%"
 help_message = '''Привет. Для начала работы добавь меня в чат.
-Для настройки бота админу нужно представиться в чате (написать сообщение с #whois длинной больше 120 символов) и написать мне в личных сообщениях /start.
+Для настройки бота админу нужно представиться в чате (написать сообщение с #whois длинной больше 20 символов) и написать мне в личных сообщениях /start.
 По умолчанию я не кикаю непредставившихся, а лишь записываю все сообщения с тегом #whois.
 Если нужно кикать, то установи таймаут кика в значение больше нуля (в минутах).
-За 10 минут до кика я отправляю сообщение с напоминанием.
+За настраиваемое время до кика я отправляю сообщение с напоминанием.
+
+Команды для администраторов (в ответ на сообщение пользователя):
+/skip — отменить кик для пользователя в этой сессии
+/approve — одобрить пользователя навсегда (не потребует представления при повторном входе)
+
+В шаблонах сообщений доступны плейсхолдеры:
+%USER_MENTION% — упоминание пользователя
+%TIMEOUT% — таймаут кика в минутах
 '''
 
 get_settings_message = """
-Таймаут кика: {kick_timeout}
+Таймаут кика: {kick_timeout} мин.
+Напоминание за: {notify_delta} мин. до кика
 ---
 Сообщение для нового участника чата: {on_new_chat_member_message}
 ---
@@ -32,13 +40,22 @@ get_settings_message = """
 Regex фильтр: ```{regex_filter}```
 ---
 Сообщение после кика: {on_kick_message}
+---
+Сообщение при выходе из чата: {on_left_chat_member_message}
+---
+Напоминание написать #whois: {on_whois_reminder_message}
+---
+Сообщение при бане (regex): {on_filtered_message}
+---
+Мин. длина #whois: {min_whois_length} символов
+---
+Длительность бана: {ban_duration} мин. (0 = навсегда)
 –––
 Кикать по regex только новых: {filter_only_new_users}
 """
 
+
 default_kick_timeout = 0
-notify_delta = 10
-min_whois_length = 20
 
 
 # ACTIONS
@@ -51,19 +68,14 @@ class Actions(IntEnum):
     set_on_known_new_chat_member_message_response = auto()
     set_kick_timeout = auto()
     set_on_kick_message = auto()
+    set_on_left_chat_member_message = auto()
+    set_notify_delta = auto()
+    set_on_whois_reminder_message = auto()
+    set_on_filtered_message = auto()
+    set_min_whois_length = auto()
+    set_ban_duration = auto()
     set_regex_filter = auto()
     set_filter_only_new_users = auto()
     get_current_settings = auto()
 
 
-RH_kick_messages = [
-    '%USER\_MENTION% молчит и покидает чат',
-    '%USER\_MENTION% забрал роскомнадзор',
-    '%USER\_MENTION% забрал Интерпол',
-    '%USER\_MENTION% провалил дедлайн',
-    # 'Хакер %USER\_MENTION% не смог выйти из VIM',
-    '%USER\_MENTION% пошёл кормить рыбок',
-    '%USER\_MENTION% провалил испытание'
-]
-
-RH_CHAT_ID = -1001400638929

@@ -28,7 +28,9 @@ target_metadata = model.Base.metadata
 # ... etc.
 
 def get_uri():
-    return os.environ.get('DATABASE_URL', config.get_main_option("sqlalchemy.url")) 
+    url = os.environ.get('DATABASE_URL', config.get_main_option("sqlalchemy.url"))
+    # Railway выдаёт postgres://, SQLAlchemy 2.0 принимает только postgresql://
+    return url.replace('postgres://', 'postgresql://', 1)
 
 def run_migrations_offline():
     """Run migrations in 'offline' mode.

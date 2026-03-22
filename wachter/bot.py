@@ -1,29 +1,63 @@
-from telegram.ext import Updater, CommandHandler, Filters, MessageHandler, CallbackQueryHandler
+import os
+from pathlib import Path
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    PicklePersistence,
+    filters,
+)
 from custom_filters import filter_bot_added
 import actions
-import os
 
 
 def main():
-    updater = Updater(os.environ['TELEGRAM_TOKEN'])
-    dp = updater.dispatcher
+    Path("data").mkdir(exist_ok=True)
 
-    dp.add_handler(CommandHandler("help", actions.on_help_command))
-    dp.add_error_handler(actions.on_error)
+    persistence = PicklePersistence(
+        filepath=os.environ.get("PERSISTENCE_PATH", "data/bot_persistence")
+    )
 
-    dp.add_handler(MessageHandler(Filters.status_update.new_chat_members & filter_bot_added,
-                                  actions.on_new_chat_member, pass_job_queue=True))
-    dp.add_handler(MessageHandler(Filters.entity('hashtag'), actions.on_hashtag_message,
-                                  pass_job_queue=True, edited_updates=True, pass_user_data=True))
-    dp.add_handler(MessageHandler(Filters.forwarded, actions.on_forward, pass_job_queue=True))
+    app = (
+        Application.builder()
+        .token(os.environ["TELEGRAM_TOKEN"])
+        .persistence(persistence)
+        .build()
+    )
 
-    dp.add_handler(CommandHandler('start', actions.on_start_command, pass_user_data=True))
-    dp.add_handler(CommandHandler('skip', actions.on_skip_command, allow_edited=True, pass_job_queue=True))
-    dp.add_handler(CallbackQueryHandler(actions.on_button_click, pass_user_data=True))
-    dp.add_handler(MessageHandler((Filters.text | Filters.entity), actions.on_message, allow_edited=True, pass_user_data=True, pass_job_queue=True))
-    
-    updater.start_polling()
-    updater.idle()
+    app.add_error_handler(actions.on_error)
+    app.add_handler(CommandHandler("help", actions.on_help_command))
+
+    app.add_handler(MessageHandler(
+        filters.StatusUpdate.NEW_CHAT_MEMBERS & filter_bot_added,
+        actions.on_new_chat_member,
+    ))
+    app.add_handler(MessageHandler(
+        filters.StatusUpdate.LEFT_CHAT_MEMBER,
+        actions.on_left_chat_member,
+    ))
+    app.add_handler(MessageHandler(
+        filters.Entity("hashtag"),
+        actions.on_hashtag_message,
+    ))
+    app.add_handler(MessageHandler(filters.FORWARDED, actions.on_forward))
+    app.add_handler(MessageHandler(
+        filters.UpdateType.EDITED_MESSAGE & filters.Entity("hashtag"),
+        actions.on_edited_message,
+    ))
+
+    app.add_handler(CommandHandler("start", actions.on_start_command))
+    app.add_handler(CommandHandler("skip", actions.on_skip_command))
+    app.add_handler(CommandHandler("approve", actions.on_approve_command))
+    app.add_handler(CommandHandler("whois", actions.on_whois_command))
+    app.add_handler(CallbackQueryHandler(actions.on_button_click))
+    app.add_handler(MessageHandler(
+        filters.TEXT | filters.CAPTION,
+        actions.on_message,
+    ))
+
+    app.run_polling()
 
 
 if __name__ == "__main__":
