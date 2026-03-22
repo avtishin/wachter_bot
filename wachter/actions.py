@@ -710,20 +710,19 @@ async def on_whois_command(update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         arg = context.args[0]
         try:
-            # Числовой ID
             user_id = int(arg)
         except ValueError:
-            # @username — резолвим через Telegram API
-            try:
-                member = await context.bot.get_chat_member(chat_id, arg)
-                user_id = member.user.id
-            except Exception:
-                await message.reply_text(f"Пользователь {arg} не найден в чате.")
-                return
+            # Telegram Bot API getChatMember принимает user_id только как целое число.
+            # Поиск по @username невозможен через этот метод.
+            await message.reply_text(
+                "Укажите числовой ID пользователя или ответьте на его сообщение.\n"
+                "Найти ID можно через @userinfobot."
+            )
+            return
     elif message.reply_to_message and message.reply_to_message.from_user:
         user_id = message.reply_to_message.from_user.id
     else:
-        await message.reply_text("Usage: /whois @username | /whois <user_id> | ответ на сообщение")
+        await message.reply_text("Usage: /whois <user_id> | ответ на сообщение")
         return
 
     with session_scope() as sess:
