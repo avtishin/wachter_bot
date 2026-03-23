@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta
+from time import monotonic
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -16,6 +17,19 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+# Счётчик попыток /whois от не-админов: user_id → (количество, время_последней_попытки)
+# Запись удаляется если пользователь молчал дольше _WHOIS_TTL_SECONDS
+_whois_nonadmin_attempts: dict[int, tuple[int, float]] = {}
+_WHOIS_SPAM_THRESHOLD = 5
+_WHOIS_TTL_SECONDS = 6 * 3600  # 6 часов бездействия — забыть
+_WHOIS_SPAM_RESPONSES = [
+    "Достал деда! 👴",
+    "Дед сказал — не для тебя эта команда. 👴💢",
+    "Ты серьёзно? ДЕД УСТАЛ. 😤",
+    "Иди лучше #whois напиши, чем деда доставать! 👴🔥",
+    "Всё. Дед на пенсии. Не беспокоить. 👴💤",
+]
 
 
 def _ban_until(ban_duration_minutes: int):
@@ -94,7 +108,9 @@ async def on_skip_command(update, context: ContextTypes.DEFAULT_TYPE):
         if removed:
             await message.reply_text(constants.on_success_skip)
     else:
-        await message.reply_text(constants.on_failed_skip)
+        # Подсказку показываем только администратору — не спамим чат для всех
+        if message.from_user is not None and await authorize_user(context.bot, chat_id, message.from_user.id):
+            await message.reply_text(constants.on_failed_skip)
 
 
 async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
@@ -703,6 +719,23 @@ async def on_whois_command(update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
 
     if chat_id > 0:
+        return
+
+    if message.from_user is None or not await authorize_user(context.bot, chat_id, message.from_user.id):
+        uid = message.from_user.id if message.from_user else 0
+        now = monotonic()
+
+        prev_count, last_time = _whois_nonadmin_attempts.get(uid, (0, now))
+        # Если молчал дольше TTL — сбрасываем счётчик как для нового человека
+        if now - last_time > _WHOIS_TTL_SECONDS:
+            prev_count = 0
+
+        count = prev_count + 1
+        _whois_nonadmin_attempts[uid] = (count, now)
+
+        if count % _WHOIS_SPAM_THRESHOLD == 0:
+            idx = (count // _WHOIS_SPAM_THRESHOLD - 1) % len(_WHOIS_SPAM_RESPONSES)
+            await message.reply_text(_WHOIS_SPAM_RESPONSES[idx])
         return
 
     # Определяем user_id из аргумента или reply

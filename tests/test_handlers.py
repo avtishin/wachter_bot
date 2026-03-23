@@ -32,12 +32,21 @@ class TestSkipCommand:
         await on_skip_command(update, mock_context)
         update.effective_message.reply_text.assert_not_called()
 
-    async def test_no_reply_shows_hint(self, mock_context):
+    async def test_no_reply_shows_hint_to_admin(self, admin_context):
+        """Только администратор получает подсказку — не спамим чат."""
+        from actions import on_skip_command
+        update = make_update(chat_id=-100)
+        update.effective_message.reply_to_message = None
+        await on_skip_command(update, admin_context)
+        update.effective_message.reply_text.assert_called_once_with(constants.on_failed_skip)
+
+    async def test_no_reply_non_admin_silently_ignored(self, mock_context):
+        """/skip без реплая от не-админа — молчим."""
         from actions import on_skip_command
         update = make_update(chat_id=-100)
         update.effective_message.reply_to_message = None
         await on_skip_command(update, mock_context)
-        update.effective_message.reply_text.assert_called_once_with(constants.on_failed_skip)
+        update.effective_message.reply_text.assert_not_called()
 
     async def test_non_admin_cannot_skip(self, mock_context):
         from actions import on_skip_command
@@ -265,42 +274,95 @@ class TestHashtagMessage:
 # ---------------------------------------------------------------------------
 
 class TestWhoisCommand:
-    async def test_no_args_shows_usage(self, mock_context):
+    async def test_non_admin_silently_ignored(self, mock_context):
+        """/whois от не-админа — молчим первые 4 попытки."""
+        import actions
+        from actions import on_whois_command
+        from time import monotonic
+        uid = 9001
+        actions._whois_nonadmin_attempts.pop(uid, None)
+        for _ in range(4):
+            update = make_update(chat_id=-100, user_id=uid)
+            mock_context.args = ["42"]
+            await on_whois_command(update, mock_context)
+            update.message.reply_text.assert_not_called()
+
+    async def test_non_admin_ded_snaps_on_5th(self, mock_context):
+        """На 5-й попытке дед не выдерживает."""
+        import actions
+        from actions import on_whois_command
+        from time import monotonic
+        uid = 9002
+        actions._whois_nonadmin_attempts[uid] = (4, monotonic())
+        update = make_update(chat_id=-100, user_id=uid)
+        mock_context.args = ["42"]
+        await on_whois_command(update, mock_context)
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        assert "дед" in text.lower() or "Достал" in text
+
+    async def test_non_admin_cycles_responses(self, mock_context):
+        """После первой вспышки — снова тишина, на 10-й — следующая фраза."""
+        import actions
+        from actions import on_whois_command
+        from time import monotonic
+        uid = 9003
+        actions._whois_nonadmin_attempts[uid] = (9, monotonic())
+        update = make_update(chat_id=-100, user_id=uid)
+        mock_context.args = ["42"]
+        await on_whois_command(update, mock_context)
+        update.message.reply_text.assert_called_once()  # 10-я — снова ругается
+
+    async def test_non_admin_ttl_resets_counter(self, mock_context):
+        """Пользователь вернулся после TTL — счётчик обнуляется, снова молчим."""
+        import actions
+        from actions import on_whois_command
+        from time import monotonic
+        uid = 9004
+        # Последняя попытка была давно (за пределами TTL)
+        actions._whois_nonadmin_attempts[uid] = (4, monotonic() - actions._WHOIS_TTL_SECONDS - 1)
+        update = make_update(chat_id=-100, user_id=uid)
+        mock_context.args = ["42"]
+        await on_whois_command(update, mock_context)
+        # Счётчик сбросился — это снова первая попытка, тишина
+        update.message.reply_text.assert_not_called()
+
+    async def test_no_args_shows_usage(self, admin_context):
         from actions import on_whois_command
         update = make_update(chat_id=-100)
-        mock_context.args = []
+        admin_context.args = []
         update.message.reply_to_message = None
-        await on_whois_command(update, mock_context)
+        await on_whois_command(update, admin_context)
         update.message.reply_text.assert_called_once_with(
             "Usage: /whois <user_id> | ответ на сообщение"
         )
 
-    async def test_username_arg_shows_hint(self, mock_context):
+    async def test_username_arg_shows_hint(self, admin_context):
         """@username как аргумент недоступен — Telegram API не поддерживает поиск по нику."""
         from actions import on_whois_command
         update = make_update(chat_id=-100)
-        mock_context.args = ["@alice"]
-        await on_whois_command(update, mock_context)
+        admin_context.args = ["@alice"]
+        await on_whois_command(update, admin_context)
         text = update.message.reply_text.call_args[0][0]
         assert "числовой ID" in text
 
-    async def test_extra_args_uses_first_arg(self, mock_context):
+    async def test_extra_args_uses_first_arg(self, admin_context):
         from actions import on_whois_command
         update = make_update(chat_id=-100)
-        mock_context.args = ["42", "extra"]
+        admin_context.args = ["42", "extra"]
 
         with patch("actions.session_scope") as mock_scope:
             mock_sess = MagicMock()
             mock_sess.query.return_value.filter.return_value.first.return_value = None
             mock_scope.return_value.__enter__.return_value = mock_sess
-            await on_whois_command(update, mock_context)
+            await on_whois_command(update, admin_context)
 
         update.message.reply_text.assert_called_once_with("Пользователь не найден в базе.")
 
-    async def test_user_found(self, mock_context):
+    async def test_user_found(self, admin_context):
         from actions import on_whois_command
         update = make_update(chat_id=-100)
-        mock_context.args = ["42"]
+        admin_context.args = ["42"]
         mock_user = MagicMock()
         mock_user.whois = "Привет, я Алиса, фронтенд-разработчик"
 
@@ -308,24 +370,23 @@ class TestWhoisCommand:
             mock_sess = MagicMock()
             mock_sess.query.return_value.filter.return_value.first.return_value = mock_user
             mock_scope.return_value.__enter__.return_value = mock_sess
-            await on_whois_command(update, mock_context)
+            await on_whois_command(update, admin_context)
 
-        # Должно быть вызвано с упоминанием пользователя
         call_args = update.message.reply_text.call_args
         assert call_args is not None
         text = call_args[0][0]
         assert "whois: Привет, я Алиса, фронтенд-разработчик" in text
 
-    async def test_user_not_found(self, mock_context):
+    async def test_user_not_found(self, admin_context):
         from actions import on_whois_command
         update = make_update(chat_id=-100)
-        mock_context.args = ["999"]
+        admin_context.args = ["999"]
 
         with patch("actions.session_scope") as mock_scope:
             mock_sess = MagicMock()
             mock_sess.query.return_value.filter.return_value.first.return_value = None
             mock_scope.return_value.__enter__.return_value = mock_sess
-            await on_whois_command(update, mock_context)
+            await on_whois_command(update, admin_context)
 
         update.message.reply_text.assert_called_once_with("Пользователь не найден в базе.")
 
