@@ -16,6 +16,11 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+# httpx/httpcore логируют каждый HTTP-запрос на уровне INFO, включая URL с токеном
+# бота (например, getUpdates раз в ~10 сек при long-polling). Поднимаем порог до
+# WARNING: шум уходит, токен в логи не попадает, реальные ошибки HTTP остаются видны.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Счётчик попыток /whois от не-админов: user_id → (количество, время_последней_попытки)
