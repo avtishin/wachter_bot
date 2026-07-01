@@ -28,10 +28,14 @@ def create_tables():
 @pytest.fixture(autouse=True)
 def clean_db():
     yield
-    from model import session_scope, Chat, User
+    from model import (session_scope, Chat, User, TgIdentity, AlumniPerson,
+                       AlumniProgramYear)
     with session_scope() as sess:
         sess.query(User).delete()
         sess.query(Chat).delete()
+        sess.query(TgIdentity).delete()
+        sess.query(AlumniPerson).delete()
+        sess.query(AlumniProgramYear).delete()
 
 
 # --- Bot / context fixtures ---

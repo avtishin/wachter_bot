@@ -57,6 +57,10 @@ Regex фильтр: ```{regex_filter}```
 
 default_kick_timeout = 0
 
+# Приветствие найденного в базе выпускника. Плейсхолдеры: %NAME% %FIRST_NAME%
+# %LAST_NAME% %CLASS% %PROGRAM%. Пока константа (не колонка chats).
+on_alumni_welcome_message = '%NAME%, %CLASS% — добро пожаловать! 🎓'
+
 
 # ACTIONS
 class Actions(IntEnum):
