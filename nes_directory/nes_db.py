@@ -219,12 +219,18 @@ def ingest(kind="full", records=None, cards=None, engine=None):
                              n_seen=len(seen), n_new=n_new, n_changed=n_changed, n_removed=n_removed))
         sess.commit()
         print(f"ingest[{kind}]: seen={len(seen)} new={n_new} changed={n_changed} removed={n_removed}")
-        return {"seen": len(seen), "new": n_new, "changed": n_changed, "removed": n_removed}
     except Exception:
         sess.rollback()
         raise
     finally:
         sess.close()
+
+    # after the directory is up to date, relink previously-unresolved identities
+    import alumni_link
+    relinked = alumni_link.reconcile_with_engine(engine)["linked"]
+    print(f"reconcile: linked={relinked}")
+    return {"seen": len(seen), "new": n_new, "changed": n_changed,
+            "removed": n_removed, "relinked": relinked}
 
 
 def stats(engine=None):

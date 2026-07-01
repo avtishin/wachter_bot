@@ -111,6 +111,16 @@ def link_alumnus(session, ident, alum):
     ident.verified_at = _now()
 
 
+def reconcile_with_engine(engine=None):
+    """Convenience wrapper: run reconcile in its own session."""
+    from sqlalchemy.orm import sessionmaker
+    session = sessionmaker(bind=engine or m.get_engine())()
+    try:
+        return reconcile(session)
+    finally:
+        session.close()
+
+
 def reconcile(session):
     """Re-check unresolved identities against the directory (by username, then
     declared email). Returns {'linked': n}."""

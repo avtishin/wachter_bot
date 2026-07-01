@@ -25,11 +25,16 @@ from flask import (Flask, request, Response, render_template, redirect,
 
 import alumni_models as am
 from alumni_models import (AlumniPerson, AlumniChangeLog, AlumniPersonHistory,
-                           AlumniProgram)
+                           AlumniProgram, TgIdentity)
+from sqlalchemy import func, or_
 
 import nes_scraper as ns
 import nes_db
 import runner
+import alumni_link
+
+IDENTITY_CATEGORIES = ["alumni", "student", "unresolved_alumni",
+                       "friend", "employee", "unknown"]
 
 HERE = Path(__file__).parent
 OUT = ns.OUT
@@ -261,6 +266,92 @@ def changes():
     for r in rows:
         r["name"] = names.get(r["uid"], r["uid"])
     return render_template("changes.html", rows=rows)
+
+
+# --- telegram identities ---------------------------------------------------
+@app.route("/identities")
+def identities():
+    cat = (request.args.get("category") or "").strip()
+    q = (request.args.get("q") or "").strip()
+    page = max(1, int(request.args.get("page", 1)))
+    with am.session_scope() as s:
+        query = s.query(TgIdentity)
+        if cat:
+            query = query.filter(TgIdentity.category == cat)
+        if q:
+            like = f"%{q}%"
+            query = query.filter(or_(TgIdentity.username.ilike(like),
+                                     TgIdentity.declared_name.ilike(like)))
+        total = query.count()
+        rows = (query.order_by(TgIdentity.category, TgIdentity.username)
+                .limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE).all())
+        counts = dict(s.query(TgIdentity.category, func.count())
+                      .group_by(TgIdentity.category).all())
+        uids = [r.alumni_uid for r in rows if r.alumni_uid]
+        names = (dict(s.query(AlumniPerson.uid, AlumniPerson.name)
+                      .filter(AlumniPerson.uid.in_(uids)).all()) if uids else {})
+        people = [{"user_id": r.user_id, "username": r.username, "category": r.category,
+                   "alumni_uid": r.alumni_uid, "alumni_name": names.get(r.alumni_uid),
+                   "declared_name": r.declared_name, "declared_program": r.declared_program,
+                   "declared_year": r.declared_year, "declared_email": r.declared_email}
+                  for r in rows]
+    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    return render_template("identities_list.html", people=people, total=total, page=page,
+                           pages=pages, q=q, category=cat,
+                           categories=IDENTITY_CATEGORIES, counts=counts)
+
+
+@app.route("/identities/<int:user_id>")
+def identity_detail(user_id):
+    aq = (request.args.get("aq") or "").strip()
+    with am.session_scope() as s:
+        ident = s.get(TgIdentity, user_id)
+        if not ident:
+            abort(404)
+        data = {"user_id": ident.user_id, "username": ident.username, "category": ident.category,
+                "alumni_uid": ident.alumni_uid, "declared_name": ident.declared_name,
+                "declared_program": ident.declared_program, "declared_year": ident.declared_year,
+                "declared_email": ident.declared_email, "intro": ident.intro, "source": ident.source}
+        linked = None
+        if ident.alumni_uid:
+            a = s.get(AlumniPerson, ident.alumni_uid)
+            linked = {"uid": a.uid, "name": a.name} if a else None
+        candidates = []
+        if aq:
+            like = f"%{aq}%"
+            for a in (s.query(AlumniPerson).filter(AlumniPerson.name.ilike(like))
+                      .order_by(AlumniPerson.name).limit(20)):
+                candidates.append({"uid": a.uid, "name": a.name, "classes": a.classes or [],
+                                   "telegram": a.telegram_username, "emails": a.emails or []})
+    return render_template("identity_detail.html", i=data, linked=linked,
+                           candidates=candidates, aq=aq, categories=IDENTITY_CATEGORIES)
+
+
+@app.route("/identities/<int:user_id>/resolve", methods=["POST"])
+def identity_resolve(user_id):
+    uid = (request.form.get("alumni_uid") or "").strip()
+    with am.session_scope() as s:
+        ident = s.get(TgIdentity, user_id)
+        if not ident:
+            abort(404)
+        alum = s.get(AlumniPerson, uid) if uid else None
+        if alum:
+            alumni_link.link_alumnus(s, ident, alum)
+    return redirect(url_for("identity_detail", user_id=user_id))
+
+
+@app.route("/identities/<int:user_id>/category", methods=["POST"])
+def identity_category(user_id):
+    cat = (request.form.get("category") or "").strip()
+    with am.session_scope() as s:
+        ident = s.get(TgIdentity, user_id)
+        if not ident:
+            abort(404)
+        if cat in IDENTITY_CATEGORIES:
+            ident.category = cat
+            if cat != "alumni":
+                ident.alumni_uid = None
+    return redirect(url_for("identity_detail", user_id=user_id))
 
 
 start_scheduler_once()

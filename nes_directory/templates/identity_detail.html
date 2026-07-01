@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Идентичность {{ i.user_id }} — NES Alumni{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('identities') }}">← к идентичностям</a></p>
+
+<div class="panel">
+  <h2 style="margin:0 0 10px;">
+    {% if i.username %}@{{ i.username }}{% else %}<span class="muted">без ника</span>{% endif %}
+    <span class="pill {{ 'new' if i.category=='alumni' else ('changed' if i.category in ('student','unresolved_alumni') else 'removed' if i.category=='unknown' else '') }}">{{ i.category }}</span>
+  </h2>
+  <div class="kv">
+    <dt>user_id</dt><dd>{{ i.user_id }}</dd>
+    <dt>источник</dt><dd>{{ i.source or '—' }}</dd>
+    {% if i.declared_name %}<dt>Заявленное имя</dt><dd>{{ i.declared_name }}</dd>{% endif %}
+    {% if i.declared_program or i.declared_year %}<dt>Заявл. программа/год</dt><dd>{{ i.declared_program or '' }} {{ i.declared_year or '' }}</dd>{% endif %}
+    {% if i.declared_email %}<dt>Заявл. email</dt><dd>{{ i.declared_email }}</dd>{% endif %}
+    {% if i.intro %}<dt>О себе</dt><dd>{{ i.intro }}</dd>{% endif %}
+    <dt>Привязка</dt><dd>
+      {% if linked %}<a href="{{ url_for('alumni_detail', uid=linked.uid) }}">{{ linked.name }}</a> (uid {{ linked.uid }}){% else %}<span class="muted">нет</span>{% endif %}
+    </dd>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Сменить категорию</h2>
+  <form method="post" action="{{ url_for('identity_category', user_id=i.user_id) }}" style="display:flex; gap:8px; flex-wrap:wrap;">
+    {% for c in categories %}
+      <button class="btn ghost" name="category" value="{{ c }}" {% if c==i.category %}disabled{% endif %}>{{ c }}</button>
+    {% endfor %}
+    <span class="muted">(смена на не-alumni снимает привязку)</span>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Привязать к выпускнику</h2>
+  <form method="get" action="{{ url_for('identity_detail', user_id=i.user_id) }}" style="margin-bottom:12px;">
+    <input type="text" name="aq" value="{{ aq }}" placeholder="поиск выпускника по имени…" size="30">
+    <button class="btn">Искать</button>
+  </form>
+  {% if candidates %}
+  <table>
+    <tr><th>имя</th><th>классы</th><th>telegram</th><th>email</th><th></th></tr>
+    {% for a in candidates %}
+    <tr>
+      <td>{{ a.name }}</td>
+      <td class="muted">{{ a.classes|join(', ') }}</td>
+      <td class="muted">{% if a.telegram %}@{{ a.telegram }}{% endif %}</td>
+      <td class="muted">{{ a.emails|join(', ') }}</td>
+      <td>
+        <form method="post" action="{{ url_for('identity_resolve', user_id=i.user_id) }}">
+          <input type="hidden" name="alumni_uid" value="{{ a.uid }}">
+          <button class="btn green">Привязать</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% elif aq %}
+  <p class="muted">Ничего не найдено по «{{ aq }}».</p>
+  {% endif %}
+</div>
+{% endblock %}
