@@ -7,7 +7,7 @@
   <div class="avatar big">{{ (p.name or p.listed_name or '?')[:1]|upper }}</div>
   <div style="flex:1;">
     <h2 style="font-size:20px; margin:0 0 8px;">{{ p.name or p.listed_name }}
-      {% if meta.removed_at %}<span class="pill removed">скрыт {{ meta.removed_at[:10] }}</span>{% endif %}
+      {% if meta.removed_at %}<span class="pill removed">скрыт {{ meta.removed_at.strftime('%Y-%m-%d') }}</span>{% endif %}
     </h2>
     <div class="kv">
       {% if p.sex %}<dt>Пол</dt><dd>{{ p.sex }}</dd>{% endif %}
@@ -19,7 +19,7 @@
     </div>
     <div class="muted" style="margin-top:10px; font-size:12px;">
       uid {{ uid }} · <a href="{{ p.url }}" target="_blank">источник на my.nes.ru ↗</a>
-      · версий: {{ meta.versions }} · обновлён {{ (meta.last_changed or '')[:10] }}
+      · версий: {{ meta.versions }} · обновлён {{ meta.last_changed.strftime('%Y-%m-%d') if meta.last_changed else '' }}
     </div>
   </div>
 </div>

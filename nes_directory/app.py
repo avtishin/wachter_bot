@@ -15,7 +15,6 @@ import hmac
 import json
 import time
 import secrets
-import sqlite3
 import threading
 import subprocess
 from datetime import datetime
@@ -23,6 +22,11 @@ from pathlib import Path
 
 from flask import (Flask, request, Response, render_template, redirect,
                    url_for, jsonify, abort)
+
+import alumni_models as am
+from alumni_models import (AlumniPerson, AlumniChangeLog, AlumniPersonHistory,
+                           AlumniProgram)
+from sqlalchemy import func, or_
 
 import nes_scraper as ns
 import nes_db
@@ -61,37 +65,19 @@ def require_auth():
 
 
 # --- db helpers ------------------------------------------------------------
-def db():
-    con = sqlite3.connect(nes_db.DB)
-    con.row_factory = sqlite3.Row
-    return con
-
-
 def dashboard_stats():
-    if not nes_db.DB.exists():
-        return {"persons": 0, "active": 0, "removed": 0, "changes": 0, "crawls": []}
-    con = db()
-    try:
-        total = con.execute("SELECT COUNT(*) FROM person").fetchone()[0]
-        active = con.execute("SELECT COUNT(*) FROM person WHERE removed_at IS NULL").fetchone()[0]
-        changes = con.execute("SELECT COUNT(*) FROM change_log").fetchone()[0]
-        crawls = [dict(r) for r in con.execute(
-            "SELECT kind,started_at,finished_at,n_seen,n_new,n_changed,n_removed "
-            "FROM crawl ORDER BY id DESC LIMIT 5")]
+    with am.session_scope() as s:
+        total = s.query(AlumniPerson).count()
+        active = s.query(AlumniPerson).filter(AlumniPerson.removed_at.is_(None)).count()
+        changes = s.query(AlumniChangeLog).count()
+        crawls = []  # crawl list optional; kept empty for now
         return {"persons": total, "active": active, "removed": total - active,
                 "changes": changes, "crawls": crawls}
-    finally:
-        con.close()
 
 
 def load_programs():
-    p = OUT / "index.json"
-    if not p.exists():
-        return []
-    progs = set()
-    for v in json.loads(p.read_text(encoding="utf-8")).values():
-        progs.update(v.get("programs", []))
-    return sorted(progs)
+    with am.session_scope() as s:
+        return [r.title for r in s.query(AlumniProgram).order_by(AlumniProgram.title)]
 
 
 # --- run status / triggers -------------------------------------------------
@@ -219,78 +205,60 @@ def index():
 
 @app.route("/alumni")
 def alumni():
-    q = (request.args.get("q") or "").strip()
+    query = (request.args.get("q") or "").strip()
     prog = (request.args.get("program") or "").strip()
     show_removed = request.args.get("removed") == "1"
     page = max(1, int(request.args.get("page", 1)))
-    where, params = [], []
-    if not show_removed:
-        where.append("removed_at IS NULL")
-    if q:
-        where.append("name LIKE ?")
-        params.append(f"%{q}%")
-    if prog:
-        where.append("full LIKE ?")
-        params.append(f"%{prog}%")
-    wsql = ("WHERE " + " AND ".join(where)) if where else ""
-    con = db()
-    try:
-        total = con.execute(f"SELECT COUNT(*) FROM person {wsql}", params).fetchone()[0]
-        rows = con.execute(
-            f"SELECT uid,name,full,removed_at,last_changed FROM person {wsql} "
-            f"ORDER BY name LIMIT ? OFFSET ?",
-            params + [PAGE_SIZE, (page - 1) * PAGE_SIZE]).fetchall()
-    finally:
-        con.close()
-    people = []
-    for r in rows:
-        full = json.loads(r["full"]) if r["full"] else {}
-        people.append({
-            "uid": r["uid"], "name": r["name"],
-            "removed": bool(r["removed_at"]),
-            "programs": full.get("listed_programs") or [],
-            "classes": full.get("listed_classes") or [],
-            "residence": full.get("residence", ""),
-            "position": (full.get("work") or [{}])[0].get("position", "") if full.get("work") else "",
-        })
+    with am.session_scope() as s:
+        q = s.query(AlumniPerson)
+        if not show_removed:
+            q = q.filter(AlumniPerson.removed_at.is_(None))
+        if query:
+            q = q.filter(AlumniPerson.name.ilike(f"%{query}%"))
+        if prog:
+            q = q.filter(AlumniPerson.programs.cast(am.Text).ilike(f"%{prog}%"))
+        total = q.count()
+        rows = q.order_by(AlumniPerson.name).limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE).all()
+        people = []
+        for r in rows:
+            full = r.full or {}
+            people.append({
+                "uid": r.uid, "name": r.name, "removed": r.removed_at is not None,
+                "programs": full.get("listed_programs") or [],
+                "classes": full.get("listed_classes") or [],
+                "residence": full.get("residence", ""),
+                "position": (full.get("work") or [{}])[0].get("position", "") if full.get("work") else "",
+            })
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     return render_template("alumni_list.html", people=people, total=total,
-                           page=page, pages=pages, q=q, program=prog,
+                           page=page, pages=pages, q=query, program=prog,
                            programs=load_programs(), show_removed=show_removed)
 
 
 @app.route("/alumni/<uid>")
 def alumni_detail(uid):
-    con = db()
-    try:
-        row = con.execute("SELECT uid,name,full,first_seen,last_seen,last_changed,removed_at "
-                          "FROM person WHERE uid=?", (uid,)).fetchone()
-        history = con.execute("SELECT captured_at,content_hash FROM person_history "
-                              "WHERE uid=? ORDER BY id DESC", (uid,)).fetchall()
-        changes = con.execute("SELECT captured_at,change_type,field,old_value,new_value "
-                              "FROM change_log WHERE uid=? ORDER BY id DESC LIMIT 100", (uid,)).fetchall()
-    finally:
-        con.close()
-    if not row:
-        abort(404)
-    full = json.loads(row["full"]) if row["full"] else {}
-    meta = {"first_seen": row["first_seen"], "last_seen": row["last_seen"],
-            "last_changed": row["last_changed"], "removed_at": row["removed_at"],
-            "versions": len(history)}
-    return render_template("alumni_detail.html", p=full, uid=uid, meta=meta,
-                           changes=[dict(c) for c in changes])
+    with am.session_scope() as s:
+        r = s.query(AlumniPerson).filter_by(uid=uid).first()
+        if not r:
+            abort(404)
+        full = r.full or {}
+        history = s.query(AlumniPersonHistory).filter_by(uid=uid).count()
+        changes = [{"captured_at": c.captured_at.isoformat(), "change_type": c.change_type,
+                    "field": c.field, "old_value": c.old_value, "new_value": c.new_value}
+                   for c in s.query(AlumniChangeLog).filter_by(uid=uid)
+                   .order_by(AlumniChangeLog.id.desc()).limit(100)]
+        meta = {"first_seen": r.first_seen, "last_seen": r.last_seen,
+                "last_changed": r.last_changed, "removed_at": r.removed_at, "versions": history}
+    return render_template("alumni_detail.html", p=full, uid=uid, meta=meta, changes=changes)
 
 
 @app.route("/changes")
 def changes():
-    con = db()
-    try:
-        rows = [dict(r) for r in con.execute(
-            "SELECT captured_at,uid,change_type,field,old_value,new_value "
-            "FROM change_log ORDER BY id DESC LIMIT 300")]
-        names = dict(con.execute("SELECT uid,name FROM person").fetchall())
-    finally:
-        con.close()
+    with am.session_scope() as s:
+        rows = [{"captured_at": c.captured_at.isoformat(), "uid": c.uid, "change_type": c.change_type,
+                 "field": c.field, "old_value": c.old_value, "new_value": c.new_value}
+                for c in s.query(AlumniChangeLog).order_by(AlumniChangeLog.id.desc()).limit(300)]
+        names = dict(s.query(AlumniPerson.uid, AlumniPerson.name).all())
     for r in rows:
         r["name"] = names.get(r["uid"], r["uid"])
     return render_template("changes.html", rows=rows)
