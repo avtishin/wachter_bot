@@ -76,7 +76,7 @@ class AlumniProgram(Base):
 
 
 class AlumniProgramYear(Base):
-    __tablename__ = "alumni_program_year"
+    __tablename__ = "alumni_program_years"
     program_code = Column(Text, primary_key=True)
     year = Column(Integer, primary_key=True)
 

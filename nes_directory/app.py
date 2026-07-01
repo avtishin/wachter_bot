@@ -2,7 +2,7 @@
 
 Features:
   * stats + manual triggers ("add new" / "full recrawl") with live run log
-  * browse alumni cards from SQLite (search + detail, no images)
+  * browse alumni cards from Postgres (search + detail, no images)
   * optional in-app cron schedule (disabled by default)
 
 Auth: HTTP Basic via APP_USER / APP_PASSWORD env (put behind HTTPS in prod).
@@ -26,7 +26,6 @@ from flask import (Flask, request, Response, render_template, redirect,
 import alumni_models as am
 from alumni_models import (AlumniPerson, AlumniChangeLog, AlumniPersonHistory,
                            AlumniProgram)
-from sqlalchemy import func, or_
 
 import nes_scraper as ns
 import nes_db
