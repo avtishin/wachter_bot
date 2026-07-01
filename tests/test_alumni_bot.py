@@ -80,6 +80,23 @@ async def test_join_recognizes_alumnus(mock_context):
         assert u is not None
 
 
+async def test_join_uses_custom_alumni_template(mock_context):
+    chat_id, uid = -100, 781
+    with session_scope() as s:
+        s.add(Chat(id=chat_id, on_alumni_welcome_message="Привет, %FIRST_NAME%!"))
+        s.add(AlumniPerson(uid="10", name="Tishin Aleksandr", first_name="Aleksandr",
+                           last_name="Tishin", telegram_username="vbt",
+                           classes=["MAE'2019"], programs=[], grad_year_max=2019))
+    update = make_update(chat_id=chat_id)
+    member = MagicMock()
+    member.id, member.is_bot, member.username = uid, False, "vbt"
+    update.message.new_chat_members = [member]
+    update.effective_chat.id = chat_id
+
+    await actions.on_new_chat_member(update, mock_context)
+    assert update.message.reply_text.call_args[0][0] == "Привет, Aleksandr!"
+
+
 async def test_join_non_alumnus_uses_whois_flow(mock_context):
     chat_id, uid = -100, 778
     with session_scope() as s:

@@ -91,5 +91,8 @@ class Actions(IntEnum):
     set_regex_filter = auto()
     set_filter_only_new_users = auto()
     get_current_settings = auto()
+    # добавлены в конец, чтобы не сдвигать значения существующих
+    set_on_alumni_welcome_message = auto()
+    set_on_email_prompt_message = auto()
 
 

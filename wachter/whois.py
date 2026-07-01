@@ -93,10 +93,15 @@ def year_keyboard(years, decade):
 
 
 # --- entry point (called from on_new_chat_member for non-matched users) ----
-async def start(update, context, chat_id, user_id, username, intro_text):
-    """Send the intro + category buttons and init state. Returns the sent msg."""
-    _states(context)[user_id] = {"chat_id": chat_id, "username": username,
-                                 "step": "category"}
+async def start(update, context, chat_id, user_id, username, intro_text,
+                alumni_welcome=None, email_prompt=None):
+    """Send the intro + category buttons and init state. Returns the sent msg.
+    Chat-configured templates are stashed in state (fallback to constants)."""
+    _states(context)[user_id] = {
+        "chat_id": chat_id, "username": username, "step": "category",
+        "alumni_welcome": alumni_welcome or constants.on_alumni_welcome_message,
+        "email_prompt": email_prompt or constants.on_email_prompt_message,
+    }
     return await update.message.reply_text(
         intro_text, reply_markup=category_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
@@ -116,7 +121,8 @@ async def on_whois_callback(update, context):
         if val == "alumnus":
             state["category_choice"] = "alumnus"
             state["step"] = "email"
-            await query.edit_message_text(constants.on_email_prompt_message)
+            await query.edit_message_text(
+                state.get("email_prompt") or constants.on_email_prompt_message)
         elif val == "student":
             state["category_choice"] = "student"
             state["step"] = "program"
@@ -198,7 +204,8 @@ async def _finish_alumnus(update, context, state, alum, session):
                            category="alumni", alumni_uid=alum.uid,
                            declared_email=state.get("declared_email"), source="buttons")
     session.merge(User(chat_id=chat_id, user_id=user_id, whois=f"alumni:{alum.uid}"))
-    welcome = alumni.format_welcome(constants.on_alumni_welcome_message, alum)
+    template = state.get("alumni_welcome") or constants.on_alumni_welcome_message
+    welcome = alumni.format_welcome(template, alum)
     await _cancel_kick(context, chat_id, user_id)
     _clear(context, user_id)
     await update.message.reply_text(welcome)

@@ -16,6 +16,8 @@ class Chat(Base):
     on_new_chat_member_message = Column(Text, nullable=False, default='Пожалуйста, представьтесь и поздоровайтесь с сообществом. У вас есть %TIMEOUT%.')
     on_known_new_chat_member_message = Column(Text, nullable=False, default='Добро пожаловать. Снова')
     on_introduce_message = Column(Text, nullable=False, default='Добро пожаловать.')
+    on_alumni_welcome_message = Column(Text, nullable=False, default='%NAME%, %CLASS% — добро пожаловать! 🎓')
+    on_email_prompt_message = Column(Text, nullable=False, default='📧 Введите ваш основной e-mail, указанный в профиле на my.nes.ru (раздел «Контактная информация»). Сверим его с директорией — если найдём, сразу вас узнаем. Не помните или не совпадёт — ничего страшного, продолжим вручную.')
     on_kick_message = Column(Text, nullable=False, default=r'%USER\_MENTION% молчит и покидает чат')
     on_left_chat_member_message = Column(Text, nullable=False, default=r'%USER\_MENTION% покинул чат')
     on_whois_reminder_message = Column(Text, nullable=False, default=r'%USER\_MENTION%, напишите сообщение с тегом \#whois (минимум %MIN\_LENGTH% символов), чтобы представиться.')

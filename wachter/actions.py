@@ -129,6 +129,11 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         known_message = chat.on_known_new_chat_member_message
         timeout = chat.kick_timeout
         notify_delta = chat.notify_delta
+        # шаблоны для alumni-флоу (fallback на константы для старых чатов)
+        alumni_welcome = getattr(chat, "on_alumni_welcome_message", None) \
+            or constants.on_alumni_welcome_message
+        email_prompt = getattr(chat, "on_email_prompt_message", None) \
+            or constants.on_email_prompt_message
 
     for member in update.message.new_chat_members:
         if member.is_bot:
@@ -156,8 +161,7 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             with session_scope() as sess:
                 alum = alumni.find_by_username(sess, username)
                 if alum is not None:
-                    welcome = alumni.format_welcome(
-                        constants.on_alumni_welcome_message, alum)
+                    welcome = alumni.format_welcome(alumni_welcome, alum)
                     alumni.upsert_identity(sess, user_id, username=username,
                                            category="alumni", alumni_uid=alum.uid)
                     # помечаем известным: повторный вход — как знакомого, без кика
@@ -174,7 +178,8 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         msg_markdown = await mention_markdown(context.bot, chat_id, user_id, message_text)
         msg_markdown = msg_markdown.replace("%TIMEOUT%", timeout_str)
         # структурированный whois на кнопках (категория → … → имя)
-        msg = await whois.start(update, context, chat_id, user_id, username, msg_markdown)
+        msg = await whois.start(update, context, chat_id, user_id, username,
+                                msg_markdown, alumni_welcome, email_prompt)
 
         if timeout != 0:
             if notify_delta > 0 and timeout > notify_delta:
@@ -443,6 +448,10 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
                 {"chat_id": selected_chat_id, "action": Actions.set_on_known_new_chat_member_message_response}))],
             [InlineKeyboardButton("Изменить сообщение после успешного представления", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_on_successful_introducion_response}))],
+            [InlineKeyboardButton("Изменить приветствие выпускника", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_on_alumni_welcome_message}))],
+            [InlineKeyboardButton("Изменить запрос e-mail (выпускник)", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_on_email_prompt_message}))],
             [InlineKeyboardButton("Изменить сообщение напоминания", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_notify_message}))],
             [InlineKeyboardButton("Изменить сообщение после кика", callback_data=json.dumps(
@@ -481,6 +490,8 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
         Actions.set_ban_duration,
         Actions.set_regex_filter,
         Actions.set_filter_only_new_users,
+        Actions.set_on_alumni_welcome_message,
+        Actions.set_on_email_prompt_message,
     ]:
         await query.edit_message_text(text="Отправьте новое значение")
         context.user_data["chat_id"] = data["chat_id"]
@@ -696,6 +707,8 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
             Actions.set_on_filtered_message,
             Actions.set_regex_filter,
             Actions.set_filter_only_new_users,
+            Actions.set_on_alumni_welcome_message,
+            Actions.set_on_email_prompt_message,
         ]:
             value = message.text_markdown
             with session_scope() as sess:
@@ -717,6 +730,10 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
                     chat = Chat(id=chat_id, on_filtered_message=value)
                 elif action == Actions.set_filter_only_new_users:
                     chat = Chat(id=chat_id, filter_only_new_users=value.lower() in ["true", "1"])
+                elif action == Actions.set_on_alumni_welcome_message:
+                    chat = Chat(id=chat_id, on_alumni_welcome_message=value)
+                elif action == Actions.set_on_email_prompt_message:
+                    chat = Chat(id=chat_id, on_email_prompt_message=value)
                 elif action == Actions.set_regex_filter:
                     if value == "%TURN_OFF%":
                         chat = Chat(id=chat_id, regex_filter=None)
