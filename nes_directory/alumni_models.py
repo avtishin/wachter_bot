@@ -18,6 +18,7 @@ class AlumniPerson(Base):
     birthday = Column(Text)
     residence = Column(Text)
     telegram_username = Column(Text, index=True)
+    emails = Column(JSONB)
     programs = Column(JSONB)
     classes = Column(JSONB)
     grad_year_max = Column(Integer)

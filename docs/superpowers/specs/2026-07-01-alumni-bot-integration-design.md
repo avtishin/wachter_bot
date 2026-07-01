@@ -56,6 +56,7 @@
 | `first_name`, `last_name` | TEXT | разбор из `name` (для приветствий/матчинга) |
 | `sex`, `birthday`, `residence` | TEXT | как в директории |
 | `telegram_username` | TEXT, индекс (lower) | ник из `t.me/…` ссылки (нормализованный, без `@`) |
+| `emails` | JSONB | нормализованные (lower) email'ы из `contact.emails` — ключ для матчинга по почте |
 | `programs` | JSONB | список программ (титулы) |
 | `classes` | JSONB | список классов (`MAE'2019`, …) |
 | `grad_year_max` | INT | максимальный год выпуска (для порогов) |
@@ -71,6 +72,9 @@
 
 `telegram_username` извлекается при ingest из `contact.links` (`t.me/<user>` или
 `telegram.me/<user>`), нормализуется: lower-case, без `@`, без query.
+`emails` извлекается при ingest из `contact.emails`, нормализуется в lower-case;
+для поиска по почте — GIN-индекс по `emails` (или отдельная lookup-таблица
+`alumni_email(email, uid)` в Фазе 2).
 
 ### Идентичность / привязка (новое, глобально — не по чатам)
 
@@ -83,6 +87,7 @@
 | `category` | TEXT | `alumni` / `student` / `friend` / `employee` / `unresolved_alumni` / `unknown` |
 | `alumni_uid` | TEXT FK→alumni_person, nullable | привязка к выпускнику |
 | `declared_name` | TEXT | имя, введённое в whois (для матчинга) |
+| `declared_email` | TEXT, nullable | email, введённый в whois (нормализ.; для матчинга по почте) |
 | `declared_program` | TEXT, nullable | код программы из кнопок |
 | `declared_year` | INT, nullable | год из кнопок |
 | `intro` | TEXT, nullable | полный текст, который ввёл человек |
@@ -121,7 +126,13 @@
 Callback-кнопки проверяют, что нажал именно целевой новичок (иначе игнор).
 
 1. **Категория:** `[🎓 Я выпускник]` · `[📚 Студент РЭШ]` · `[🤝 Друг / сотрудник РЭШ]`
-2. **Выпускник / Студент → программа:** кнопки строятся из
+2. **Выпускник → сначала email (второй авто-матч).** Бот просит ввести email →
+   ищем `alumni_person`, где `email ∈ emails`.
+   - **найден** → привязываем как `alumni` (`alumni_uid`, `verified_at`), пишем
+     `declared_email`, шлём приветствие выпускника — **ручной ввод пропускается**.
+   - **не найден** → сохраняем `declared_email` и идём в ручной ввод (шаги 2a→3→4).
+   Студент/друг email не спрашивают.
+2a. **Выпускник (email не совпал) / Студент → программа:** кнопки строятся из
    `SELECT DISTINCT program_code FROM alumni_program_years` (по 2 в ряд, подпись
    из `alumni_program.title`).
    **Друг/сотрудник →** `[Друг РЭШ]` · `[Сотрудник РЭШ]` (в `employee`/`friend`).
@@ -164,6 +175,9 @@ Callback-кнопки проверяют, что нажал именно цел�
   `alumni_person.telegram_username` → `alumni_uid`, `category='alumni'`,
   `verified_at=now`. Закрывает оба кейса: студент выпустился и появился в базе;
   выпускник добавил свой телеграм.
+- **По `declared_email`** (авто, высокая точность): `declared_email ∈
+  alumni_person.emails` → `alumni_uid`, `category='alumni'`. Ловит тех, кто ввёл
+  почту, но на момент ввода ещё не был в базе (студент выпустился).
 - **По `declared_name` + программа + год** (когда ника нет/не совпал): фаззи-матч
   по имени и классу → НЕ авто, а кандидат на подтверждение в дашборде.
 
