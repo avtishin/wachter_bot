@@ -296,6 +296,7 @@ git commit -m "feat: SQLAlchemy models for alumni_* tables"
 - Produces:
   - `split_name(name: str) -> tuple[str|None, str|None]` → `(first_name, last_name)`.
   - `telegram_username(links: list[dict]) -> str|None` (normalized).
+  - `emails(contact: dict) -> list[str]` (lower-cased, de-duped, order-preserving).
   - `year_of_class(cls: str) -> int|None` (trailing 4-digit year).
   - `program_code_of_class(cls: str) -> str|None` (prefix before `'`).
   - `grad_year_max(classes: list[str]) -> int|None`.
@@ -328,6 +329,13 @@ def test_year_and_program_of_class():
     assert d.year_of_class("MAE'2019") == 2019
     assert d.program_code_of_class("MAE'2019") == "MAE"
     assert d.year_of_class("no year") is None
+
+
+def test_emails():
+    contact = {"emails": ["A@nes.ru", "b@x.com", "a@nes.ru"]}
+    assert d.emails(contact) == ["a@nes.ru", "b@x.com"]
+    assert d.emails({}) == []
+    assert d.emails({"emails": []}) == []
 
 
 def test_grad_year_max():
@@ -383,6 +391,15 @@ def telegram_username(links):
         if m:
             return m.group(1).lower()
     return None
+
+
+def emails(contact):
+    out = []
+    for e in (contact or {}).get("emails") or []:
+        e = (e or "").strip().lower()
+        if e and e not in out:
+            out.append(e)
+    return out
 
 
 def year_of_class(cls):
@@ -464,7 +481,8 @@ REC = {
     "birthday": "24 January", "residence": "Россия, г Москва",
     "listed_programs": ["Master of Arts in Economics [MAE]"],
     "listed_classes": ["MAE'2019"],
-    "contact": {"links": [{"title": "Telegram", "url": "https://t.me/Very_Big_T"}]},
+    "contact": {"links": [{"title": "Telegram", "url": "https://t.me/Very_Big_T"}],
+                "emails": ["A.Tishin@nes.ru"]},
     "work": [{"company": "X", "position": "Lead"}],
 }
 
@@ -479,6 +497,7 @@ def test_ingest_new_person(pg_session):
     assert res["new"] == 1 and res["changed"] == 0
     p = pg_session.query(m.AlumniPerson).filter_by(uid="10").one()
     assert p.telegram_username == "very_big_t"
+    assert p.emails == ["a.tishin@nes.ru"]
     assert p.first_name == "Aleksandr" and p.last_name == "Tishin"
     assert p.grad_year_max == 2019
     assert pg_session.query(m.AlumniProgramYear).filter_by(program_code="MAE", year=2019).count() == 1
@@ -574,6 +593,7 @@ def ingest(kind="full", records=None, cards=None, engine=None):
             full = {k: v for k, v in rec.items() if not k.startswith("_")}
             first, last = d.split_name(rec.get("name") or "")
             tg = d.telegram_username((rec.get("contact") or {}).get("links"))
+            emls = d.emails(rec.get("contact") or {})
             classes = rec.get("listed_classes") or []
             programs = rec.get("listed_programs") or []
             gmax = d.grad_year_max(classes)
@@ -584,7 +604,7 @@ def ingest(kind="full", records=None, cards=None, engine=None):
                 sess.add(AlumniPerson(
                     uid=uid, name=name, first_name=first, last_name=last,
                     sex=rec.get("sex"), birthday=rec.get("birthday"),
-                    residence=rec.get("residence"), telegram_username=tg,
+                    residence=rec.get("residence"), telegram_username=tg, emails=emls,
                     programs=programs, classes=classes, grad_year_max=gmax,
                     content_hash=h, full=full, first_seen=ts, last_seen=ts,
                     last_changed=ts, removed_at=None))
@@ -603,6 +623,7 @@ def ingest(kind="full", records=None, cards=None, engine=None):
                 row.name, row.first_name, row.last_name = name, first, last
                 row.sex, row.birthday, row.residence = rec.get("sex"), rec.get("birthday"), rec.get("residence")
                 row.telegram_username, row.programs, row.classes = tg, programs, classes
+                row.emails = emls
                 row.grad_year_max, row.content_hash, row.full = gmax, h, full
                 row.last_seen = row.last_changed = ts
                 row.removed_at = None
