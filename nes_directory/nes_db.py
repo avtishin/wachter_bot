@@ -1,11 +1,14 @@
-"""SQLite store for the NES alumni directory with full version history.
+"""Postgres store for the NES alumni directory with full version history.
 
-Ingests parsed records (out/alumni.json) into out/nes.db:
+Ingests parsed records into Postgres via SQLAlchemy:
 
-  person          current snapshot per uid (+ first_seen/last_seen/hash/removed)
-  person_history  append-only: one row per distinct content version
-  change_log      field-level diffs (created / added / removed / changed)
-  crawl           one row per ingest run with counters
+  alumni_person          current snapshot per uid (+ first_seen/last_seen/hash/removed)
+  alumni_person_history  append-only: one row per distinct content version
+  alumni_change_log      field-level diffs (created / added / removed / changed)
+  alumni_crawl           one row per ingest run with counters
+  alumni_raw_card        raw HTML per uid
+  alumni_program         program code → title
+  alumni_program_year    program code × grad year pairs
 
 Change detection is content-hash based: each record is canonicalised
 (meaningful fields only, lists sorted) and sha256'd. A changed hash triggers a
@@ -13,22 +16,25 @@ deep field-level diff against the previous version. Nothing is deleted —
 people missing from a fresh full index get removed_at set, keeping history.
 
 Usage:
-  python3 nes_db.py ingest [--kind full|new]   # read out/alumni.json + index
+  python3 nes_db.py ingest [--kind full|new]   # read out/alumni.json + raw_html/cards/
   python3 nes_db.py stats
   python3 nes_db.py changes [N]                 # last N change_log rows
 """
 import os
 import sys
 import json
-import time
 import hashlib
-import sqlite3
 import pathlib
 from datetime import datetime, timezone
 
+import alumni_models as m
+import alumni_derive as d
+from alumni_models import get_engine, init_db, AlumniPerson, AlumniPersonHistory, \
+    AlumniChangeLog, AlumniCrawl, AlumniRawCard, AlumniProgram, AlumniProgramYear
+from sqlalchemy.orm import sessionmaker
+
 HERE = pathlib.Path(__file__).parent
 OUT = HERE / "out"
-DB = OUT / "nes.db"
 
 # fields that define a person's "content" for change detection (order matters
 # only for readability; lists are canonicalised below)
@@ -39,63 +45,24 @@ CONTENT_FIELDS = [
     "listed_programs", "listed_classes", "other_sections",
 ]
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS person (
-    uid          TEXT PRIMARY KEY,
-    name         TEXT,
-    content_hash TEXT,
-    data         TEXT,          -- canonical JSON (used for change detection)
-    full         TEXT,          -- full display JSON (parsed record, original order)
-    first_seen   TEXT,
-    last_seen    TEXT,
-    last_changed TEXT,
-    removed_at   TEXT
-);
-CREATE TABLE IF NOT EXISTS person_history (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    uid          TEXT,
-    content_hash TEXT,
-    captured_at  TEXT,
-    data         TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_hist_uid ON person_history(uid);
-CREATE TABLE IF NOT EXISTS change_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    uid          TEXT,
-    captured_at  TEXT,
-    change_type  TEXT,          -- created | added | removed | changed
-    field        TEXT,
-    old_value    TEXT,
-    new_value    TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_chg_uid ON change_log(uid);
-CREATE TABLE IF NOT EXISTS crawl (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    started_at   TEXT,
-    finished_at  TEXT,
-    kind         TEXT,
-    n_seen       INTEGER,
-    n_new        INTEGER,
-    n_changed    INTEGER,
-    n_removed    INTEGER
-);
-"""
-
 
 def now():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc)
 
 
-def connect():
-    OUT.mkdir(exist_ok=True)
-    con = sqlite3.connect(DB)
-    con.executescript(SCHEMA)
-    # migrate older DBs that predate the `full` column
-    cols = {r[1] for r in con.execute("PRAGMA table_info(person)")}
-    if "full" not in cols:
-        con.execute("ALTER TABLE person ADD COLUMN full TEXT")
-        con.commit()
-    return con
+def load_records():
+    p = OUT / "alumni.json"
+    if not p.exists():
+        raise SystemExit("Нет out/alumni.json — сначала запусти фазу parse.")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def load_cards():
+    cards = {}
+    d_ = OUT.parent / "raw_html" / "cards"
+    for f in d_.glob("*.html") if d_.exists() else []:
+        cards[f.stem] = f.read_text(encoding="utf-8")
+    return cards
 
 
 # --- canonicalisation & hashing -------------------------------------------
@@ -157,108 +124,147 @@ def _as_text(v):
     return v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
 
 
+# --- session factory -------------------------------------------------------
+def _session_factory(engine):
+    return sessionmaker(bind=engine or get_engine())
+
+
 # --- ingest ----------------------------------------------------------------
-def ingest(kind="full"):
-    alumni_path = OUT / "alumni.json"
-    if not alumni_path.exists():
-        sys.exit("Нет out/alumni.json — сначала запусти фазу parse.")
-    records = json.loads(alumni_path.read_text(encoding="utf-8"))
-
-    con = connect()
-    cur = con.cursor()
+def ingest(kind="full", records=None, cards=None, engine=None):
+    engine = engine or get_engine()
+    init_db(engine)
+    if records is None:
+        records = load_records()
+    if cards is None:
+        cards = load_cards()
+    Session = _session_factory(engine)
+    sess = Session()
     started = now()
-    seen_uids = set()
+    seen = set()
     n_new = n_changed = 0
-
-    for rec in records:
-        uid = str(rec["uid"])
-        seen_uids.add(uid)
-        canon = canonical(rec)
-        h = content_hash(canon)
-        canon_json = json.dumps(canon, ensure_ascii=False, sort_keys=True)
-        full_json = json.dumps({k: v for k, v in rec.items() if not k.startswith("_")},
-                               ensure_ascii=False)
-        name = rec.get("name") or rec.get("listed_name") or ""
-
-        row = cur.execute("SELECT content_hash, data, removed_at FROM person WHERE uid=?",
-                          (uid,)).fetchone()
-        ts = now()
-        if row is None:
-            cur.execute(
-                "INSERT INTO person(uid,name,content_hash,data,full,first_seen,last_seen,last_changed,removed_at)"
-                " VALUES(?,?,?,?,?,?,?,?,NULL)",
-                (uid, name, h, canon_json, full_json, ts, ts, ts))
-            cur.execute("INSERT INTO person_history(uid,content_hash,captured_at,data) VALUES(?,?,?,?)",
-                        (uid, h, ts, canon_json))
-            cur.execute("INSERT INTO change_log(uid,captured_at,change_type,field,old_value,new_value)"
-                        " VALUES(?,?,?,?,?,?)", (uid, ts, "created", "", None, name))
-            n_new += 1
-        else:
-            old_hash, old_data, removed_at = row
-            if old_hash != h:
-                old_canon = json.loads(old_data) if old_data else {}
-                for ctype, field, ov, nv in diff(old_canon, canon):
-                    cur.execute(
-                        "INSERT INTO change_log(uid,captured_at,change_type,field,old_value,new_value)"
-                        " VALUES(?,?,?,?,?,?)", (uid, ts, ctype, field, ov, nv))
-                cur.execute("INSERT INTO person_history(uid,content_hash,captured_at,data) VALUES(?,?,?,?)",
-                            (uid, h, ts, canon_json))
-                cur.execute("UPDATE person SET name=?,content_hash=?,data=?,full=?,last_seen=?,last_changed=?,removed_at=NULL"
-                            " WHERE uid=?", (name, h, canon_json, full_json, ts, ts, uid))
+    try:
+        for rec in records:
+            uid = str(rec["uid"])
+            seen.add(uid)
+            canon = canonical(rec)
+            h = content_hash(canon)
+            full = {k: v for k, v in rec.items() if not k.startswith("_")}
+            first, last = d.split_name(rec.get("name") or "")
+            tg = d.telegram_username((rec.get("contact") or {}).get("links"))
+            emls = d.emails(rec.get("contact") or {})
+            classes = rec.get("listed_classes") or []
+            programs = rec.get("listed_programs") or []
+            gmax = d.grad_year_max(classes)
+            name = rec.get("name") or rec.get("listed_name") or ""
+            ts = now()
+            row = sess.get(AlumniPerson, uid)
+            if row is None:
+                sess.add(AlumniPerson(
+                    uid=uid, name=name, first_name=first, last_name=last,
+                    sex=rec.get("sex"), birthday=rec.get("birthday"),
+                    residence=rec.get("residence"), telegram_username=tg, emails=emls,
+                    programs=programs, classes=classes, grad_year_max=gmax,
+                    content_hash=h, full=full, first_seen=ts, last_seen=ts,
+                    last_changed=ts, removed_at=None))
+                sess.add(AlumniPersonHistory(uid=uid, content_hash=h, captured_at=ts, data=canon))
+                sess.add(AlumniChangeLog(uid=uid, captured_at=ts, change_type="created",
+                                         field="", old_value=None, new_value=name))
+                n_new += 1
+            elif row.content_hash != h:
+                old_canon = sess.query(AlumniPersonHistory.data).filter_by(
+                    uid=uid).order_by(AlumniPersonHistory.id.desc()).first()
+                old = old_canon[0] if old_canon else {}
+                for ctype, field, ov, nv in diff(old, canon):
+                    sess.add(AlumniChangeLog(uid=uid, captured_at=ts, change_type=ctype,
+                                             field=field, old_value=ov, new_value=nv))
+                sess.add(AlumniPersonHistory(uid=uid, content_hash=h, captured_at=ts, data=canon))
+                row.name, row.first_name, row.last_name = name, first, last
+                row.sex, row.birthday, row.residence = rec.get("sex"), rec.get("birthday"), rec.get("residence")
+                row.telegram_username, row.programs, row.classes = tg, programs, classes
+                row.emails = emls
+                row.grad_year_max, row.content_hash, row.full = gmax, h, full
+                row.last_seen = row.last_changed = ts
+                row.removed_at = None
                 n_changed += 1
             else:
-                cur.execute("UPDATE person SET full=?,last_seen=?,removed_at=NULL WHERE uid=?",
-                            (full_json, ts, uid))
+                row.last_seen = ts
+                row.removed_at = None
+            html = cards.get(uid)
+            if html is not None:
+                card = sess.get(AlumniRawCard, uid)
+                if card is None:
+                    sess.add(AlumniRawCard(uid=uid, html=html, fetched_at=ts))
+                else:
+                    card.html, card.fetched_at = html, ts
 
-    # mark removed (only meaningful on a full crawl where `records` = whole roster)
-    n_removed = 0
-    if kind == "full":
-        ts = now()
-        for (uid,) in cur.execute("SELECT uid FROM person WHERE removed_at IS NULL").fetchall():
-            if uid not in seen_uids:
-                cur.execute("UPDATE person SET removed_at=? WHERE uid=?", (ts, uid))
-                cur.execute("INSERT INTO change_log(uid,captured_at,change_type,field,old_value,new_value)"
-                            " VALUES(?,?,?,?,?,?)", (uid, ts, "removed", "", "present", None))
-                n_removed += 1
+        n_removed = 0
+        if kind == "full":
+            ts = now()
+            for row in sess.query(AlumniPerson).filter(AlumniPerson.removed_at.is_(None)).all():
+                if row.uid not in seen:
+                    row.removed_at = ts
+                    sess.add(AlumniChangeLog(uid=row.uid, captured_at=ts, change_type="removed",
+                                             field="", old_value="present", new_value=None))
+                    n_removed += 1
 
-    cur.execute("INSERT INTO crawl(started_at,finished_at,kind,n_seen,n_new,n_changed,n_removed)"
-                " VALUES(?,?,?,?,?,?,?)",
-                (started, now(), kind, len(seen_uids), n_new, n_changed, n_removed))
-    con.commit()
-    con.close()
-    print(f"ingest[{kind}]: seen={len(seen_uids)} new={n_new} changed={n_changed} removed={n_removed} -> {DB}")
+        titles, pairs = d.build_program_years(records)
+        sess.query(AlumniProgramYear).delete()
+        sess.query(AlumniProgram).delete()
+        for code, title in titles.items():
+            sess.add(AlumniProgram(code=code, title=title))
+        for code, year in pairs:
+            sess.add(AlumniProgramYear(program_code=code, year=year))
+
+        sess.add(AlumniCrawl(started_at=started, finished_at=now(), kind=kind,
+                             n_seen=len(seen), n_new=n_new, n_changed=n_changed, n_removed=n_removed))
+        sess.commit()
+        print(f"ingest[{kind}]: seen={len(seen)} new={n_new} changed={n_changed} removed={n_removed}")
+        return {"seen": len(seen), "new": n_new, "changed": n_changed, "removed": n_removed}
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
 
 
-def stats():
-    con = connect(); cur = con.cursor()
-    total = cur.execute("SELECT COUNT(*) FROM person").fetchone()[0]
-    active = cur.execute("SELECT COUNT(*) FROM person WHERE removed_at IS NULL").fetchone()[0]
-    hist = cur.execute("SELECT COUNT(*) FROM person_history").fetchone()[0]
-    chg = cur.execute("SELECT COUNT(*) FROM change_log").fetchone()[0]
-    print(f"persons: {total} (active {active}) | history rows: {hist} | change_log: {chg}")
-    for r in cur.execute("SELECT id,kind,started_at,n_seen,n_new,n_changed,n_removed FROM crawl ORDER BY id DESC LIMIT 5"):
-        print("  crawl", r)
-    con.close()
+def stats(engine=None):
+    Session = _session_factory(engine or get_engine())
+    sess = Session()
+    try:
+        total = sess.query(AlumniPerson).count()
+        active = sess.query(AlumniPerson).filter(AlumniPerson.removed_at.is_(None)).count()
+        hist = sess.query(AlumniPersonHistory).count()
+        chg = sess.query(AlumniChangeLog).count()
+        out = {"persons": total, "active": active, "history": hist, "changes": chg}
+        print(out)
+        return out
+    finally:
+        sess.close()
 
 
-def changes(n=30):
-    con = connect(); cur = con.cursor()
-    for r in cur.execute("SELECT captured_at,uid,change_type,field,old_value,new_value"
-                         " FROM change_log ORDER BY id DESC LIMIT ?", (n,)):
-        print(r)
-    con.close()
+def changes(n=30, engine=None):
+    Session = _session_factory(engine or get_engine())
+    sess = Session()
+    try:
+        rows = sess.query(AlumniChangeLog).order_by(AlumniChangeLog.id.desc()).limit(n).all()
+        out = [{"captured_at": r.captured_at.isoformat(), "uid": r.uid,
+                "change_type": r.change_type, "field": r.field,
+                "old_value": r.old_value, "new_value": r.new_value} for r in rows]
+        for r in out:
+            print(r)
+        return out
+    finally:
+        sess.close()
 
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "ingest"
     if cmd == "ingest":
-        kind = "full"
-        if "--kind" in sys.argv:
-            kind = sys.argv[sys.argv.index("--kind") + 1]
+        kind = sys.argv[sys.argv.index("--kind") + 1] if "--kind" in sys.argv else "full"
         ingest(kind)
     elif cmd == "stats":
         stats()
     elif cmd == "changes":
         changes(int(sys.argv[2]) if len(sys.argv) > 2 else 30)
     else:
-        sys.exit(f"unknown command {cmd!r}")
+        raise SystemExit(f"unknown command {cmd!r}")
