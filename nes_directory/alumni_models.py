@@ -1,8 +1,7 @@
 import os
 from contextlib import contextmanager
 
-from sqlalchemy import (create_engine, Column, Text, Integer, BigInteger,
-                        TIMESTAMP)
+from sqlalchemy import create_engine, Column, Text, Integer, TIMESTAMP
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -87,21 +86,28 @@ def get_engine(url=None):
     return create_engine(url)
 
 
-_Session = None
+_default_engine = None
+
+
+def _resolve_engine(engine=None):
+    global _default_engine
+    if engine is not None:
+        return engine
+    if _default_engine is None:
+        _default_engine = get_engine()
+    return _default_engine
 
 
 def init_db(engine=None):
-    engine = engine or get_engine()
+    engine = _resolve_engine(engine)
     Base.metadata.create_all(engine)
     return engine
 
 
 @contextmanager
 def session_scope(engine=None):
-    global _Session
-    if _Session is None:
-        _Session = sessionmaker(bind=engine or get_engine())
-    sess = _Session()
+    Session = sessionmaker(bind=_resolve_engine(engine))
+    sess = Session()
     try:
         yield sess
         sess.commit()
