@@ -10,6 +10,7 @@ from telegram.ext import (
 )
 from custom_filters import filter_bot_added
 import actions
+import whois
 
 
 def main():
@@ -51,6 +52,7 @@ def main():
     app.add_handler(CommandHandler("skip", actions.on_skip_command))
     app.add_handler(CommandHandler("approve", actions.on_approve_command))
     app.add_handler(CommandHandler("whois", actions.on_whois_command))
+    app.add_handler(CallbackQueryHandler(whois.on_whois_callback, pattern=r"^w:"))
     app.add_handler(CallbackQueryHandler(actions.on_button_click))
     app.add_handler(MessageHandler(
         filters.TEXT | filters.CAPTION,

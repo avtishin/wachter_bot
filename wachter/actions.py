@@ -12,6 +12,7 @@ from model import Chat, User, session_scope
 from constants import Actions
 import constants
 import alumni
+import whois
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -172,7 +173,8 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         timeout_str = f"{timeout} мин." if timeout > 0 else "не установлен"
         msg_markdown = await mention_markdown(context.bot, chat_id, user_id, message_text)
         msg_markdown = msg_markdown.replace("%TIMEOUT%", timeout_str)
-        msg = await update.message.reply_text(msg_markdown, parse_mode=ParseMode.MARKDOWN)
+        # структурированный whois на кнопках (категория → … → имя)
+        msg = await whois.start(update, context, chat_id, user_id, username, msg_markdown)
 
         if timeout != 0:
             if notify_delta > 0 and timeout > notify_delta:
@@ -562,6 +564,9 @@ def is_chat_filters_new_users(chat_id):
 
 
 async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
+    # kнопочный whois ждёт email/имя от новичка — перехватываем до фильтров
+    if await whois.try_whois_text(update, context):
+        return
     message = update.effective_message
     chat_id = message.chat_id
 

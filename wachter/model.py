@@ -80,6 +80,14 @@ class AlumniPerson(Base):
     removed_at = Column(TIMESTAMP(timezone=True))
 
 
+class AlumniProgram(Base):
+    """Read model of program code → title for button labels."""
+    __tablename__ = 'alumni_program'
+
+    code = Column(Text, primary_key=True)
+    title = Column(Text)
+
+
 class AlumniProgramYear(Base):
     """Read model of program×year pairs for the whois keyboards."""
     __tablename__ = 'alumni_program_years'

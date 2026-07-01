@@ -29,12 +29,13 @@ def create_tables():
 def clean_db():
     yield
     from model import (session_scope, Chat, User, TgIdentity, AlumniPerson,
-                       AlumniProgramYear)
+                       AlumniProgram, AlumniProgramYear)
     with session_scope() as sess:
         sess.query(User).delete()
         sess.query(Chat).delete()
         sess.query(TgIdentity).delete()
         sess.query(AlumniPerson).delete()
+        sess.query(AlumniProgram).delete()
         sess.query(AlumniProgramYear).delete()
 
 

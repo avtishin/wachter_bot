@@ -9,7 +9,7 @@ do not commit themselves.
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import func
+from sqlalchemy import func, Text
 
 from model import AlumniPerson, TgIdentity
 
@@ -43,6 +43,18 @@ def find_by_username(session, username):
         return None
     return (session.query(AlumniPerson)
             .filter(func.lower(AlumniPerson.telegram_username) == un,
+                    AlumniPerson.removed_at.is_(None))
+            .first())
+
+
+def find_by_email(session, email):
+    """Match by email. Portable across SQLite (test) and Postgres (prod):
+    compares against the JSON text of the `emails` list (`["a@b.com"]`)."""
+    em = normalize_email(email)
+    if not em:
+        return None
+    return (session.query(AlumniPerson)
+            .filter(AlumniPerson.emails.cast(Text).ilike(f'%"{em}"%'),
                     AlumniPerson.removed_at.is_(None))
             .first())
 
