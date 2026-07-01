@@ -9,3 +9,4 @@ __pycache__/
 .venv/
 members.csv
 members_enriched.csv
+pgdata/
