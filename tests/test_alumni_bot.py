@@ -1,6 +1,10 @@
-"""Bot-side alumni recognition data layer (wachter/alumni.py)."""
-from model import session_scope, AlumniPerson, TgIdentity
+"""Bot-side alumni recognition data layer (wachter/alumni.py) + join flow."""
+from unittest.mock import MagicMock
+
+from model import session_scope, AlumniPerson, TgIdentity, User, Chat
 import alumni as al
+import actions
+from helpers import make_update
 
 
 def _seed_alum(uid="10", username="very_big_t", classes=None):
@@ -45,3 +49,51 @@ def test_classify():
     assert al.classify("alumnus", 2018, 2025) == "unresolved_alumni"
     assert al.classify("student", None, 2025) == "student"
     assert al.classify("friend", None, 2025) == "friend"
+
+
+async def test_join_recognizes_alumnus(mock_context):
+    chat_id, uid = -100, 777
+    with session_scope() as s:
+        s.add(Chat(id=chat_id))
+        s.add(AlumniPerson(uid="10", name="Tishin Aleksandr", first_name="Aleksandr",
+                           last_name="Tishin", telegram_username="very_big_t",
+                           classes=["MAE'2019"],
+                           programs=["Master of Arts in Economics [MAE]"], grad_year_max=2019))
+
+    update = make_update(chat_id=chat_id)
+    member = MagicMock()
+    member.id, member.is_bot, member.username = uid, False, "very_big_t"
+    update.message.new_chat_members = [member]
+    update.effective_chat.id = chat_id
+
+    await actions.on_new_chat_member(update, mock_context)
+
+    update.message.reply_text.assert_called_once()
+    sent = update.message.reply_text.call_args[0][0]
+    assert "Tishin Aleksandr" in sent and "MAE'2019" in sent
+    mock_context.job_queue.run_once.assert_not_called()   # no kick for alumni
+
+    with session_scope() as s:
+        ident = s.get(TgIdentity, uid)
+        assert ident.category == "alumni" and ident.alumni_uid == "10"
+        u = s.query(User).filter(User.chat_id == chat_id, User.user_id == uid).first()
+        assert u is not None
+
+
+async def test_join_non_alumnus_uses_whois_flow(mock_context):
+    chat_id, uid = -100, 778
+    with session_scope() as s:
+        s.add(Chat(id=chat_id, kick_timeout=30))
+
+    update = make_update(chat_id=chat_id)
+    member = MagicMock()
+    member.id, member.is_bot, member.username = uid, False, "stranger"
+    update.message.new_chat_members = [member]
+    update.effective_chat.id = chat_id
+
+    await actions.on_new_chat_member(update, mock_context)
+
+    # no alumni identity recorded; kick timer scheduled (standard flow)
+    with session_scope() as s:
+        assert s.get(TgIdentity, uid) is None
+    assert mock_context.job_queue.run_once.called

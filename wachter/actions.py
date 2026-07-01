@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 from model import Chat, User, session_scope
 from constants import Actions
 import constants
+import alumni
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -145,6 +146,24 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
 
         if user_found:
             await update.message.reply_text(known_message)
+            continue
+
+        # узнаём выпускника по telegram-нику (member.username: str | None)
+        username = member.username
+        welcome = None
+        if isinstance(username, str) and username.strip():
+            with session_scope() as sess:
+                alum = alumni.find_by_username(sess, username)
+                if alum is not None:
+                    welcome = alumni.format_welcome(
+                        constants.on_alumni_welcome_message, alum)
+                    alumni.upsert_identity(sess, user_id, username=username,
+                                           category="alumni", alumni_uid=alum.uid)
+                    # помечаем известным: повторный вход — как знакомого, без кика
+                    sess.merge(User(chat_id=chat_id, user_id=user_id,
+                                    whois=f"alumni:{alum.uid}"))
+        if welcome is not None:
+            await update.message.reply_text(welcome)
             continue
 
         if message_text == constants.skip_on_new_chat_member_message:
