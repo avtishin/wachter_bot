@@ -1,7 +1,7 @@
 import os
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, Column, Text, Integer, TIMESTAMP
+from sqlalchemy import create_engine, Column, Text, Integer, BigInteger, TIMESTAMP
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -79,6 +79,26 @@ class AlumniProgramYear(Base):
     __tablename__ = "alumni_program_years"
     program_code = Column(Text, primary_key=True)
     year = Column(Integer, primary_key=True)
+
+
+class TgIdentity(Base):
+    """Who a Telegram user is w.r.t. NES (global, not per-chat). Written by the
+    bot on join / button-whois and by the dashboard on manual resolve; seeded
+    from members.csv."""
+    __tablename__ = "tg_identity"
+    user_id = Column(BigInteger, primary_key=True)   # stable Telegram id
+    username = Column(Text, index=True)              # last seen, normalized
+    category = Column(Text)   # alumni|student|friend|employee|unresolved_alumni|unknown
+    alumni_uid = Column(Text, index=True)            # -> alumni_person.uid (nullable)
+    declared_name = Column(Text)
+    declared_program = Column(Text)
+    declared_year = Column(Integer)
+    declared_email = Column(Text)
+    intro = Column(Text)
+    first_seen = Column(TIMESTAMP(timezone=True))
+    last_seen = Column(TIMESTAMP(timezone=True))
+    verified_at = Column(TIMESTAMP(timezone=True))
+    source = Column(Text)     # members_csv|join|buttons|manual
 
 
 def get_engine(url=None):
