@@ -1,0 +1,21 @@
+services:
+  web:
+    build: .
+    image: nes-alumni
+    ports:
+      - "8000:8000"
+    # NES_LOGIN / NES_PASSWORD are read from creds.env (same file the CLI uses)
+    env_file:
+      - creds.env
+    environment:
+      # dashboard Basic Auth — APP_PASSWORD is required (set it in .env)
+      - APP_USER=${APP_USER:-admin}
+      - APP_PASSWORD=${APP_PASSWORD:?set APP_PASSWORD in .env before starting}
+      # politeness between requests
+      - NES_MIN_DELAY=${NES_MIN_DELAY:-1.0}
+      - NES_MAX_DELAY=${NES_MAX_DELAY:-2.5}
+    volumes:
+      # persist all data (SQLite DB, raw cards, JSON exports, logs, schedule)
+      - ./out:/app/out
+      - ./raw_html:/app/raw_html
+    restart: unless-stopped
