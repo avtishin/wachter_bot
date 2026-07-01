@@ -39,6 +39,15 @@ def test_ingest_detects_change(pg_session):
     res = nes_db.ingest("full", records=[rec2], cards={}, engine=eng)
     assert res["changed"] == 1
     assert pg_session.query(m.AlumniPersonHistory).filter_by(uid="10").count() == 2
+    # field-level diff rows are written for the change (a list change to `work`
+    # yields added+removed rows, not "changed")
+    assert pg_session.query(m.AlumniChangeLog).filter(
+        m.AlumniChangeLog.uid == "10",
+        m.AlumniChangeLog.change_type.in_(["added", "removed", "changed"])).count() >= 1
+    # derived fields survive an update (guards the emails-on-update path)
+    p = pg_session.query(m.AlumniPerson).filter_by(uid="10").one()
+    assert p.emails == ["a.tishin@nes.ru"]
+    assert p.telegram_username == "very_big_t"
 
 
 def test_ingest_full_marks_removed(pg_session):
