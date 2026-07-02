@@ -14,6 +14,7 @@ from sqlalchemy import func, Text
 from model import AlumniPerson, TgIdentity
 
 _TG_RE = re.compile(r"(?:t|telegram)\.me/([A-Za-z0-9_]+)")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _now():
@@ -49,12 +50,17 @@ def find_by_username(session, username):
 
 def find_by_email(session, email):
     """Match by email. Portable across SQLite (test) and Postgres (prod):
-    compares against the JSON text of the `emails` list (`["a@b.com"]`)."""
+    compares against the JSON text of the `emails` list (`["a@b.com"]`).
+
+    Security: the value is embedded in a LIKE pattern, so reject non-emails and
+    escape LIKE wildcards (`%`/`_`). Without this, a newcomer could enter `%` to
+    match an arbitrary alumnus and bypass the whois gate / impersonate them."""
     em = normalize_email(email)
-    if not em:
+    if not em or not _EMAIL_RE.match(em):
         return None
+    esc = em.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return (session.query(AlumniPerson)
-            .filter(AlumniPerson.emails.cast(Text).ilike(f'%"{em}"%'),
+            .filter(AlumniPerson.emails.cast(Text).ilike(f'%"{esc}"%', escape="\\"),
                     AlumniPerson.removed_at.is_(None))
             .first())
 

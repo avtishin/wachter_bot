@@ -101,6 +101,22 @@ async def test_alumnus_email_miss_falls_to_program():
     assert st["step"] == "program" and st["declared_email"] == "missing@nowhere.com"
 
 
+async def test_email_wildcard_does_not_impersonate():
+    _seed_programs()
+    with session_scope() as s:
+        s.add(AlumniPerson(uid="10", name="Real Alum", emails=["real@nes.ru"],
+                           classes=["MAE'2019"], programs=[], grad_year_max=2019))
+    ctx = _ctx()
+    uid = 790
+    whois._states(ctx)[uid] = {"chat_id": CHAT_ID, "username": "x",
+                               "category_choice": "alumnus", "step": "email"}
+    # entering a LIKE wildcard must NOT link to the alumnus
+    await whois.try_whois_text(_text(uid, "%"), ctx)
+    with session_scope() as s:
+        assert s.get(TgIdentity, uid) is None       # not recognized as alumni
+    assert whois._get(ctx, uid)["step"] == "program"  # fell through to manual
+
+
 async def test_student_future_years_have_no_skip():
     _seed_programs()
     with session_scope() as s:

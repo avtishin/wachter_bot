@@ -44,6 +44,21 @@ def test_upsert_identity_alumni_sets_verified():
         assert i.username == "very_big_t" and i.verified_at is not None
 
 
+def test_find_by_email_exact_and_wildcard_safe():
+    with session_scope() as s:
+        s.add(AlumniPerson(uid="10", name="X Y", emails=["Real@nes.ru"],
+                           classes=["MAE'2019"], programs=[], grad_year_max=2019))
+    with session_scope() as s:
+        # exact match works, case-insensitive
+        assert al.find_by_email(s, "real@nes.ru").uid == "10"
+        assert al.find_by_email(s, "REAL@nes.ru").uid == "10"
+        # LIKE wildcards / non-emails must NOT match anything
+        assert al.find_by_email(s, "%") is None
+        assert al.find_by_email(s, "_") is None
+        assert al.find_by_email(s, '%"%"%') is None
+        assert al.find_by_email(s, "notthere@x.com") is None
+
+
 def test_classify():
     assert al.classify("alumnus", 2026, 2025) == "student"
     assert al.classify("alumnus", 2018, 2025) == "unresolved_alumni"
