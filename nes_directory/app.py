@@ -373,7 +373,8 @@ def identity_category(user_id):
             ident.category = cat
             if cat != "alumni":
                 ident.alumni_uid = None
-    return redirect(url_for("identity_detail", user_id=user_id))
+    # вернуться туда, откуда пришли (список или карточка)
+    return redirect(request.referrer or url_for("identity_detail", user_id=user_id))
 
 
 start_scheduler_once()

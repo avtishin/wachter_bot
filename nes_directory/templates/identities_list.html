@@ -36,8 +36,14 @@
       {% if p.declared_program %}{{ p.declared_program }}{% if p.declared_year %}'{{ p.declared_year }}{% endif %}{% endif %}
       {% if p.declared_email %}<div>{{ p.declared_email }}</div>{% endif %}
     </td>
-    <td style="max-width:340px; word-break:break-word; font-size:12px;">{{ p.intro or p.declared_name or '' }}</td>
-    <td><a href="{{ url_for('identity_detail', user_id=p.user_id) }}">открыть →</a></td>
+    <td style="max-width:300px; word-break:break-word; font-size:12px;">{{ p.intro or p.declared_name or '' }}</td>
+    <td style="white-space:nowrap;">
+      <form method="post" action="{{ url_for('identity_category', user_id=p.user_id) }}" style="display:inline;">
+        <button class="btn ghost" name="category" value="friend" title="пометить другом РЭШ" style="padding:4px 8px;">друг</button>
+        <button class="btn ghost" name="category" value="employee" title="пометить сотрудником РЭШ" style="padding:4px 8px;">сотр.</button>
+      </form>
+      <a href="{{ url_for('identity_detail', user_id=p.user_id) }}">открыть / привязать →</a>
+    </td>
   </tr>
   {% else %}
   <tr><td colspan="6" class="muted">Ничего не найдено.</td></tr>
