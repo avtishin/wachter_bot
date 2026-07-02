@@ -38,6 +38,12 @@ def normalize_email(e):
     return e.strip().lower() or None
 
 
+def valid_email(e):
+    """Normalized email if it looks like an address, else None."""
+    em = normalize_email(e)
+    return em if em and _EMAIL_RE.match(em) else None
+
+
 def find_by_username(session, username):
     un = normalize_username(username)
     if not un:
@@ -55,8 +61,8 @@ def find_by_email(session, email):
     Security: the value is embedded in a LIKE pattern, so reject non-emails and
     escape LIKE wildcards (`%`/`_`). Without this, a newcomer could enter `%` to
     match an arbitrary alumnus and bypass the whois gate / impersonate them."""
-    em = normalize_email(email)
-    if not em or not _EMAIL_RE.match(em):
+    em = valid_email(email)
+    if not em:
         return None
     esc = em.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return (session.query(AlumniPerson)

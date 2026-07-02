@@ -163,7 +163,8 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
                 if alum is not None:
                     welcome = alumni.format_welcome(alumni_welcome, alum)
                     alumni.upsert_identity(sess, user_id, username=username,
-                                           category="alumni", alumni_uid=alum.uid)
+                                           category="alumni", alumni_uid=alum.uid,
+                                           source="join")
                     # помечаем известным: повторный вход — как знакомого, без кика
                     sess.merge(User(chat_id=chat_id, user_id=user_id,
                                     whois=f"alumni:{alum.uid}"))

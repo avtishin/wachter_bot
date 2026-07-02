@@ -25,7 +25,7 @@ from flask import (Flask, request, Response, render_template, redirect,
 
 import alumni_models as am
 from alumni_models import (AlumniPerson, AlumniChangeLog, AlumniPersonHistory,
-                           AlumniProgram, TgIdentity)
+                           AlumniProgram, AlumniCrawl, TgIdentity)
 from sqlalchemy import func, or_
 
 import nes_scraper as ns
@@ -74,7 +74,13 @@ def dashboard_stats():
         total = s.query(AlumniPerson).count()
         active = s.query(AlumniPerson).filter(AlumniPerson.removed_at.is_(None)).count()
         changes = s.query(AlumniChangeLog).count()
-        crawls = []  # crawl list optional; kept empty for now
+        crawls = [{
+            "kind": c.kind,
+            "started_at": c.started_at.strftime("%Y-%m-%d %H:%M") if c.started_at else "",
+            "finished_at": c.finished_at.strftime("%H:%M") if c.finished_at else "…",
+            "n_seen": c.n_seen, "n_new": c.n_new,
+            "n_changed": c.n_changed, "n_removed": c.n_removed,
+        } for c in s.query(AlumniCrawl).order_by(AlumniCrawl.id.desc()).limit(5)]
         return {"persons": total, "active": active, "removed": total - active,
                 "changes": changes, "crawls": crawls}
 

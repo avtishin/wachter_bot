@@ -116,6 +116,8 @@ async def on_whois_callback(update, context):
         return
     await query.answer()
     _, kind, val = query.data.split(":", 2)
+    if kind in ("dec", "year") and not val.isdigit():
+        return   # ignore crafted non-numeric callback data
 
     if kind == "cat":
         if val == "alumnus":
@@ -178,16 +180,24 @@ async def try_whois_text(update, context):
     text = (update.message.text or "").strip()
 
     if state["step"] == "email":
+        # DB work inside the session; network I/O only after it closes.
+        welcome = None
         with session_scope() as s:
             alum = alumni.find_by_email(s, text)
             if alum is not None:
-                await _finish_alumnus(update, context, state, alum, s)
-                return True
-        state["declared_email"] = alumni.normalize_email(text)
+                welcome = _link_alumnus(s, state, user_id, alum)
+        if welcome is not None:
+            await _cancel_kick(context, state["chat_id"], user_id)
+            _clear(context, user_id)
+            await update.message.reply_text(welcome)
+            return True
+        # miss -> manual program selection (store only a valid email)
+        state["declared_email"] = alumni.valid_email(text)
         state["step"] = "program"
         with session_scope() as s:
-            await update.message.reply_text("Не нашли по почте — выберите программу:",
-                                            reply_markup=program_keyboard(s))
+            keyboard = program_keyboard(s)
+        await update.message.reply_text("Не нашли по почте — выберите программу:",
+                                        reply_markup=keyboard)
         return True
 
     if state["step"] == "name":
@@ -197,18 +207,15 @@ async def try_whois_text(update, context):
 
 
 # --- completion ------------------------------------------------------------
-async def _finish_alumnus(update, context, state, alum, session):
-    user_id = update.effective_user.id
-    chat_id = state["chat_id"]
+def _link_alumnus(session, state, user_id, alum):
+    """Bind identity to an alumnus and return the welcome text (no I/O here)."""
     alumni.upsert_identity(session, user_id, username=state.get("username"),
                            category="alumni", alumni_uid=alum.uid,
                            declared_email=state.get("declared_email"), source="buttons")
-    session.merge(User(chat_id=chat_id, user_id=user_id, whois=f"alumni:{alum.uid}"))
+    session.merge(User(chat_id=state["chat_id"], user_id=user_id,
+                       whois=f"alumni:{alum.uid}"))
     template = state.get("alumni_welcome") or constants.on_alumni_welcome_message
-    welcome = alumni.format_welcome(template, alum)
-    await _cancel_kick(context, chat_id, user_id)
-    _clear(context, user_id)
-    await update.message.reply_text(welcome)
+    return alumni.format_welcome(template, alum)
 
 
 async def _finish_declared(update, context, state, text):

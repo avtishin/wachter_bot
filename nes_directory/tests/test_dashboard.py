@@ -39,3 +39,10 @@ def test_alumni_search(client):
 def test_alumni_detail(client):
     r = client.get("/alumni/10", headers=_auth())
     assert r.status_code == 200 and "Lead".encode() in r.data
+
+
+def test_index_shows_crawls(client):
+    # ingest created an AlumniCrawl row -> the "last runs" section must render
+    r = client.get("/", headers=_auth())
+    assert r.status_code == 200
+    assert "Последние запуски" in r.data.decode("utf-8")
