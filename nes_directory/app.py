@@ -217,6 +217,7 @@ def index():
 def alumni():
     query = (request.args.get("q") or "").strip()
     prog = (request.args.get("program") or "").strip()
+    year = (request.args.get("year") or "").strip()
     show_removed = request.args.get("removed") == "1"
     page = max(1, int(request.args.get("page", 1)))
     with am.session_scope() as s:
@@ -227,8 +228,14 @@ def alumni():
             q = q.filter(AlumniPerson.name.ilike(f"%{query}%"))
         if prog:
             q = q.filter(AlumniPerson.programs.cast(am.Text).ilike(f"%{prog}%"))
+        if year.isdigit():
+            # любой класс с этим годом (учитывает несколько программ)
+            q = q.filter(AlumniPerson.classes.cast(am.Text).like(f"%'{year}%"))
         total = q.count()
         rows = q.order_by(AlumniPerson.name).limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE).all()
+        years = [str(y) for (y,) in s.query(AlumniPerson.grad_year_max).distinct()
+                 .filter(AlumniPerson.grad_year_max.isnot(None))
+                 .order_by(AlumniPerson.grad_year_max.desc())]
         people = []
         for r in rows:
             full = r.full or {}
@@ -241,8 +248,8 @@ def alumni():
             })
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     return render_template("alumni_list.html", people=people, total=total,
-                           page=page, pages=pages, q=query, program=prog,
-                           programs=load_programs(), show_removed=show_removed)
+                           page=page, pages=pages, q=query, program=prog, year=year,
+                           years=years, programs=load_programs(), show_removed=show_removed)
 
 
 @app.route("/alumni/<uid>")

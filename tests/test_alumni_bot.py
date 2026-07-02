@@ -1,5 +1,6 @@
 """Bot-side alumni recognition data layer (wachter/alumni.py) + join flow."""
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import MagicMock, AsyncMock
 
 from model import session_scope, AlumniPerson, TgIdentity, User, Chat
 import alumni as al
@@ -57,6 +58,43 @@ def test_find_by_email_exact_and_wildcard_safe():
         assert al.find_by_email(s, "_") is None
         assert al.find_by_email(s, '%"%"%') is None
         assert al.find_by_email(s, "notthere@x.com") is None
+
+
+def test_alumni_whois_message_includes_bio_and_tag():
+    alum = SimpleNamespace(
+        name="Tishin A", first_name="A", last_name="Tishin",
+        classes=["MAE'2019"], programs=[],
+        full={"work": [{"position": "Lead", "company": "P2P"}], "residence": "Москва"})
+    msg = al.alumni_whois_message("%NAME%, %CLASS%", alum)
+    assert "Tishin A, MAE'2019" in msg
+    assert "Lead · P2P" in msg and "📍 Москва" in msg
+    assert "#whois MAE'2019" in msg
+
+
+async def test_bot_missing_rights():
+    def member(**kw):
+        return SimpleNamespace(**kw)
+    bot = MagicMock()
+    bot.id = 1
+    bot.get_chat_member = AsyncMock(return_value=member(
+        status="administrator", can_restrict_members=True, can_delete_messages=True))
+    assert await actions.bot_missing_rights(bot, -100) == []
+    bot.get_chat_member = AsyncMock(return_value=member(status="member"))
+    assert await actions.bot_missing_rights(bot, -100) == ["admin"]
+    bot.get_chat_member = AsyncMock(return_value=member(
+        status="administrator", can_restrict_members=True, can_delete_messages=False))
+    assert await actions.bot_missing_rights(bot, -100) == ["delete"]
+
+
+async def test_join_blocked_without_rights(mock_context, monkeypatch):
+    monkeypatch.setattr(actions, "ensure_rights", AsyncMock(return_value=False))
+    update = make_update(chat_id=-100)
+    member = MagicMock()
+    member.id, member.is_bot, member.username = 500, False, "x"
+    update.message.new_chat_members = [member]
+    update.effective_chat.id = -100
+    await actions.on_new_chat_member(update, mock_context)
+    update.message.reply_text.assert_not_called()   # no processing without rights
 
 
 def test_classify():

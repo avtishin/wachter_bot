@@ -46,6 +46,61 @@ def _ban_until(ban_duration_minutes: int):
     return datetime.now() + timedelta(minutes=ban_duration_minutes)
 
 
+# --- проверка прав бота в чате ---------------------------------------------
+# Боту нужны права админа: блокировать участников (кик) и удалять сообщения
+# (whois-ввод + чистка). Без них бот отказывается обрабатывать чат.
+_RIGHTS_LABELS = {
+    "admin": "сделать меня администратором",
+    "ban": "право «Блокировка участников»",
+    "delete": "право «Удаление сообщений»",
+}
+_rights_warned: set[int] = set()   # чаты, которым уже показали предупреждение
+
+
+async def bot_missing_rights(bot, chat_id):
+    """Список недостающих прав бота ([] — всё в порядке)."""
+    try:
+        me = await bot.get_chat_member(chat_id, bot.id)
+    except Exception:
+        return ["admin"]
+    if getattr(me, "status", None) != "administrator":
+        return ["admin"]
+    missing = []
+    if not getattr(me, "can_restrict_members", False):
+        missing.append("ban")
+    if not getattr(me, "can_delete_messages", False):
+        missing.append("delete")
+    return missing
+
+
+async def ensure_rights(context, chat_id):
+    """True если прав хватает. Иначе один раз предупреждает чат и возвращает False."""
+    missing = await bot_missing_rights(context.bot, chat_id)
+    if not missing:
+        _rights_warned.discard(chat_id)
+        return True
+    if chat_id not in _rights_warned:
+        _rights_warned.add(chat_id)
+        need = ", ".join(_RIGHTS_LABELS[m] for m in missing)
+        try:
+            await context.bot.send_message(
+                chat_id,
+                f"⚠️ Мне не хватает прав, чтобы работать в этом чате: {need}. "
+                f"Пока прав нет, я не приветствую и не проверяю участников.")
+        except Exception:
+            pass
+    return False
+
+
+async def on_my_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
+    """Реакция на изменение статуса бота в чате — сразу проверяем права."""
+    chat = update.effective_chat
+    if chat is None or chat.id >= 0:
+        return
+    if await ensure_rights(context, chat.id):
+        _rights_warned.discard(chat.id)
+
+
 async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
     logger.warning(f'Update "{update}" caused error "{context.error}"')
 
@@ -123,6 +178,10 @@ async def on_skip_command(update, context: ContextTypes.DEFAULT_TYPE):
 async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
+    # без прав админа (кик + удаление) не работаем — предупреждаем и выходим
+    if not await ensure_rights(context, chat_id):
+        return
+
     with session_scope() as sess:
         chat = sess.query(Chat).filter(Chat.id == chat_id).first()
         if chat is None:
@@ -166,10 +225,7 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             with session_scope() as sess:
                 alum = alumni.find_by_username(sess, username)
                 if alum is not None:
-                    welcome = alumni.format_welcome(alumni_welcome, alum)
-                    classes = alumni.classes_str(alum)
-                    if classes:
-                        welcome = f"{welcome}\n\n#whois {classes}"
+                    welcome = alumni.alumni_whois_message(alumni_welcome, alum)
                     alumni.upsert_identity(sess, user_id, username=username,
                                            category="alumni", alumni_uid=alum.uid,
                                            source="join")

@@ -41,6 +41,14 @@ def clean_db():
 
 # --- Bot / context fixtures ---
 
+@pytest.fixture(autouse=True)
+def _bot_has_rights(monkeypatch):
+    """By default assume the bot has admin rights, so handler tests exercise the
+    actual logic. Rights-gate tests override this."""
+    import actions
+    monkeypatch.setattr(actions, "ensure_rights", AsyncMock(return_value=True))
+
+
 @pytest.fixture
 def mock_bot():
     """Бот, где пользователь — обычный участник (не админ)."""

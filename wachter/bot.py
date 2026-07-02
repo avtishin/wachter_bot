@@ -5,6 +5,7 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
+    ChatMemberHandler,
     PicklePersistence,
     filters,
 )
@@ -28,6 +29,8 @@ def main():
     )
 
     app.add_error_handler(actions.on_error)
+    app.add_handler(ChatMemberHandler(
+        actions.on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(CommandHandler("help", actions.on_help_command))
 
     app.add_handler(MessageHandler(

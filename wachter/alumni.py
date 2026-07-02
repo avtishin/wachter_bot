@@ -120,3 +120,30 @@ def format_welcome(template, alum):
             .replace("%LAST_NAME%", alum.last_name or "")
             .replace("%CLASS%", classes_str(alum))
             .replace("%PROGRAM%", ", ".join(alum.programs or [])))
+
+
+def bio(alum):
+    """Short one-line bio from the directory card: latest job + residence."""
+    full = getattr(alum, "full", None) or {}
+    parts = []
+    work = full.get("work") or []
+    if work:
+        w = work[0]
+        job = " · ".join(x for x in (w.get("position"), w.get("company")) if x)
+        if job:
+            parts.append(job)
+    if full.get("residence"):
+        parts.append(f"📍 {full['residence']}")
+    return " · ".join(parts)
+
+
+def alumni_whois_message(template, alum):
+    """Welcome + short bio + searchable #whois tag (name/class only, no email)."""
+    msg = format_welcome(template, alum)
+    b = bio(alum)
+    if b:
+        msg += f"\n{b}"
+    classes = classes_str(alum)
+    if classes:
+        msg += f"\n\n#whois {classes}"
+    return msg

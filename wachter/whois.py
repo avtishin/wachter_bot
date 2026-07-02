@@ -228,9 +228,7 @@ def _link_alumnus(session, state, user_id, alum):
     session.merge(User(chat_id=state["chat_id"], user_id=user_id,
                        whois=f"alumni:{alum.uid}"))
     template = state.get("alumni_welcome") or constants.on_alumni_welcome_message
-    welcome = alumni.format_welcome(template, alum)
-    classes = alumni.classes_str(alum)
-    return f"{welcome}\n\n#whois {classes}" if classes else welcome
+    return alumni.alumni_whois_message(template, alum)
 
 
 def _declared_tag(state):

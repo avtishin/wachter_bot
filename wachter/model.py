@@ -79,6 +79,7 @@ class AlumniPerson(Base):
     programs = Column(JSON)
     classes = Column(JSON)
     grad_year_max = Column(Integer)
+    full = Column(JSON)          # полная карточка (для короткого био в приветствии)
     removed_at = Column(TIMESTAMP(timezone=True))
 
 

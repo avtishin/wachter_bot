@@ -9,6 +9,12 @@
       <option value="{{ pr }}" {% if pr==program %}selected{% endif %}>{{ pr }}</option>
     {% endfor %}
   </select>
+  <select name="year">
+    <option value="">все годы</option>
+    {% for y in years %}
+      <option value="{{ y }}" {% if y==year %}selected{% endif %}>{{ y }}</option>
+    {% endfor %}
+  </select>
   <label class="muted"><input type="checkbox" name="removed" value="1" {% if show_removed %}checked{% endif %}> показывать скрытых</label>
   <button class="btn">Найти</button>
   <span class="muted">{{ total }} чел.</span>
@@ -32,9 +38,9 @@
 
 {% if pages > 1 %}
 <div class="pager">
-  {% if page > 1 %}<a class="btn ghost" href="{{ url_for('alumni', q=q, program=program, removed='1' if show_removed else None, page=page-1) }}">← назад</a>{% endif %}
+  {% if page > 1 %}<a class="btn ghost" href="{{ url_for('alumni', q=q, program=program, year=year, removed='1' if show_removed else None, page=page-1) }}">← назад</a>{% endif %}
   <span class="muted">стр. {{ page }} из {{ pages }}</span>
-  {% if page < pages %}<a class="btn ghost" href="{{ url_for('alumni', q=q, program=program, removed='1' if show_removed else None, page=page+1) }}">вперёд →</a>{% endif %}
+  {% if page < pages %}<a class="btn ghost" href="{{ url_for('alumni', q=q, program=program, year=year, removed='1' if show_removed else None, page=page+1) }}">вперёд →</a>{% endif %}
 </div>
 {% endif %}
 {% endblock %}
