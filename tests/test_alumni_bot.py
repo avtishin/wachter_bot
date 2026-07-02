@@ -109,7 +109,9 @@ async def test_join_uses_custom_alumni_template(mock_context):
     update.effective_chat.id = chat_id
 
     await actions.on_new_chat_member(update, mock_context)
-    assert update.message.reply_text.call_args[0][0] == "Привет, Aleksandr!"
+    sent = update.message.reply_text.call_args[0][0]
+    assert sent.startswith("Привет, Aleksandr!")
+    assert "#whois MAE'2019" in sent   # searchable tag appended
 
 
 async def test_join_non_alumnus_uses_whois_flow(mock_context):

@@ -167,6 +167,9 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
                 alum = alumni.find_by_username(sess, username)
                 if alum is not None:
                     welcome = alumni.format_welcome(alumni_welcome, alum)
+                    classes = alumni.classes_str(alum)
+                    if classes:
+                        welcome = f"{welcome}\n\n#whois {classes}"
                     alumni.upsert_identity(sess, user_id, username=username,
                                            category="alumni", alumni_uid=alum.uid,
                                            source="join")

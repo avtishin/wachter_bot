@@ -15,7 +15,7 @@ hooked at the top of the general text handler.
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 
-from model import session_scope, Chat, User, AlumniProgram, AlumniProgramYear
+from model import session_scope, User, AlumniProgram, AlumniProgramYear
 import constants
 import alumni
 
@@ -64,10 +64,11 @@ def _rows(buttons, per_row=2):
 def program_keyboard(session):
     codes = {c for (c,) in session.query(AlumniProgramYear.program_code).distinct()}
     progs = (session.query(AlumniProgram)
-             .filter(AlumniProgram.code.in_(codes)).order_by(AlumniProgram.title).all())
-    btns = [InlineKeyboardButton(p.title or p.code, callback_data=f"w:prog:{p.code}")
+             .filter(AlumniProgram.code.in_(codes)).order_by(AlumniProgram.code).all())
+    # короткий код (MAE/BAE/…) — полные названия не влезают в кнопку
+    btns = [InlineKeyboardButton(p.code, callback_data=f"w:prog:{p.code}")
             for p in progs]
-    return InlineKeyboardMarkup(_rows(btns))
+    return InlineKeyboardMarkup(_rows(btns, 3))
 
 
 def _program_years(session, code, category_choice):
@@ -178,6 +179,8 @@ async def try_whois_text(update, context):
     if state is None or state.get("step") not in TEXT_STEPS:
         return False
     text = (update.message.text or "").strip()
+    chat_id = state["chat_id"]
+    msg_id = update.message.message_id
 
     if state["step"] == "email":
         # DB work inside the session; network I/O only after it closes.
@@ -186,18 +189,20 @@ async def try_whois_text(update, context):
             alum = alumni.find_by_email(s, text)
             if alum is not None:
                 welcome = _link_alumnus(s, state, user_id, alum)
+        # the email must not linger in the chat — delete the user's message
+        await _delete_msg(context, chat_id, msg_id)
         if welcome is not None:
-            await _cancel_kick(context, state["chat_id"], user_id)
+            await _cancel_kick(context, chat_id, user_id)
             _clear(context, user_id)
-            await update.message.reply_text(welcome)
+            await context.bot.send_message(chat_id, welcome)
             return True
         # miss -> manual program selection (store only a valid email)
         state["declared_email"] = alumni.valid_email(text)
         state["step"] = "program"
         with session_scope() as s:
             keyboard = program_keyboard(s)
-        await update.message.reply_text("Не нашли по почте — выберите программу:",
-                                        reply_markup=keyboard)
+        await context.bot.send_message(chat_id, "Не нашли по почте — выберите программу:",
+                                       reply_markup=keyboard)
         return True
 
     if state["step"] == "name":
@@ -207,15 +212,33 @@ async def try_whois_text(update, context):
 
 
 # --- completion ------------------------------------------------------------
+async def _delete_msg(context, chat_id, message_id):
+    """Best-effort delete of a user's whois input (needs admin delete rights)."""
+    try:
+        await context.bot.delete_message(chat_id, message_id)
+    except Exception:
+        pass
+
+
 def _link_alumnus(session, state, user_id, alum):
-    """Bind identity to an alumnus and return the welcome text (no I/O here)."""
+    """Bind identity to an alumnus and return the welcome + #whois text."""
     alumni.upsert_identity(session, user_id, username=state.get("username"),
                            category="alumni", alumni_uid=alum.uid,
                            declared_email=state.get("declared_email"), source="buttons")
     session.merge(User(chat_id=state["chat_id"], user_id=user_id,
                        whois=f"alumni:{alum.uid}"))
     template = state.get("alumni_welcome") or constants.on_alumni_welcome_message
-    return alumni.format_welcome(template, alum)
+    welcome = alumni.format_welcome(template, alum)
+    classes = alumni.classes_str(alum)
+    return f"{welcome}\n\n#whois {classes}" if classes else welcome
+
+
+def _declared_tag(state):
+    prog, year, choice = state.get("program"), state.get("year"), state.get("category_choice")
+    if prog:
+        return f"{prog}'{year}" if year else prog
+    return {"friend": "друг РЭШ", "employee": "сотрудник РЭШ",
+            "student": "студент РЭШ"}.get(choice, "")
 
 
 async def _finish_declared(update, context, state, text):
@@ -232,11 +255,13 @@ async def _finish_declared(update, context, state, text):
             declared_year=year, declared_email=state.get("declared_email"),
             intro=text, source="buttons")
         s.merge(User(chat_id=chat_id, user_id=user_id, whois=text))
-        chat = s.get(Chat, chat_id)
-        greeting = chat.on_introduce_message if chat else "Добро пожаловать."
+    # repost as a searchable #whois summary (no email), then drop the raw input
+    tag = _declared_tag(state)
+    summary = f"{text}\n\n#whois {tag}".rstrip()
+    await _delete_msg(context, chat_id, update.message.message_id)
     await _cancel_kick(context, chat_id, user_id)
     _clear(context, user_id)
-    await update.message.reply_text(greeting)
+    await context.bot.send_message(chat_id, summary)
 
 
 async def _cancel_kick(context, chat_id, user_id):

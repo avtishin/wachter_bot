@@ -278,12 +278,18 @@ def changes():
 @app.route("/identities")
 def identities():
     cat = (request.args.get("category") or "").strip()
+    prog = (request.args.get("program") or "").strip()
     q = (request.args.get("q") or "").strip()
+    introduced = request.args.get("introduced") == "1"
     page = max(1, int(request.args.get("page", 1)))
     with am.session_scope() as s:
         query = s.query(TgIdentity)
         if cat:
             query = query.filter(TgIdentity.category == cat)
+        if prog:
+            query = query.filter(TgIdentity.declared_program == prog)
+        if introduced:   # только представившиеся в чате (кнопочный whois)
+            query = query.filter(TgIdentity.source == "buttons")
         if q:
             like = f"%{q}%"
             query = query.filter(or_(TgIdentity.username.ilike(like),
@@ -293,18 +299,21 @@ def identities():
                 .limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE).all())
         counts = dict(s.query(TgIdentity.category, func.count())
                       .group_by(TgIdentity.category).all())
+        programs = [p for (p,) in s.query(TgIdentity.declared_program).distinct()
+                    .filter(TgIdentity.declared_program.isnot(None)).order_by(TgIdentity.declared_program)]
         uids = [r.alumni_uid for r in rows if r.alumni_uid]
         names = (dict(s.query(AlumniPerson.uid, AlumniPerson.name)
                       .filter(AlumniPerson.uid.in_(uids)).all()) if uids else {})
         people = [{"user_id": r.user_id, "username": r.username, "category": r.category,
                    "alumni_uid": r.alumni_uid, "alumni_name": names.get(r.alumni_uid),
                    "declared_name": r.declared_name, "declared_program": r.declared_program,
-                   "declared_year": r.declared_year, "declared_email": r.declared_email}
+                   "declared_year": r.declared_year, "declared_email": r.declared_email,
+                   "intro": r.intro, "source": r.source}
                   for r in rows]
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     return render_template("identities_list.html", people=people, total=total, page=page,
-                           pages=pages, q=q, category=cat,
-                           categories=IDENTITY_CATEGORIES, counts=counts)
+                           pages=pages, q=q, category=cat, program=prog, programs=programs,
+                           introduced=introduced, categories=IDENTITY_CATEGORIES, counts=counts)
 
 
 @app.route("/identities/<int:user_id>")

@@ -101,6 +101,32 @@ async def test_alumnus_email_miss_falls_to_program():
     assert st["step"] == "program" and st["declared_email"] == "missing@nowhere.com"
 
 
+async def test_completion_deletes_input_and_posts_whois():
+    _seed_programs()
+    ctx = _ctx()
+    uid = 800
+    whois._states(ctx)[uid] = {"chat_id": CHAT_ID, "username": "s",
+                               "category_choice": "student", "program": "MAE",
+                               "year": 2019, "step": "name"}
+    await whois.try_whois_text(_text(uid, "Иванов Иван, работаю в X"), ctx)
+    # raw input removed from the chat
+    ctx.bot.delete_message.assert_called_once()
+    # bot posts a searchable #whois summary with program, no email
+    chat_id, summary = ctx.bot.send_message.call_args[0][:2]
+    assert chat_id == CHAT_ID
+    assert "#whois" in summary and "MAE'2019" in summary and "Иванов Иван" in summary
+
+
+async def test_email_message_is_deleted():
+    _seed_programs()
+    ctx = _ctx()
+    uid = 801
+    whois._states(ctx)[uid] = {"chat_id": CHAT_ID, "username": "s",
+                               "category_choice": "alumnus", "step": "email"}
+    await whois.try_whois_text(_text(uid, "someone@nowhere.com"), ctx)
+    ctx.bot.delete_message.assert_called_once()   # email never lingers
+
+
 async def test_email_wildcard_does_not_impersonate():
     _seed_programs()
     with session_scope() as s:
