@@ -46,6 +46,16 @@ def _ban_until(ban_duration_minutes: int):
     return datetime.now() + timedelta(minutes=ban_duration_minutes)
 
 
+def apply_timeout(text, timeout):
+    """Подставляет %TIMEOUT%. Если кик отключён (0) — убирает упоминание таймаута,
+    чтобы не показывать «не установлен»."""
+    if timeout and timeout > 0:
+        return text.replace("%TIMEOUT%", f"{timeout} мин.")
+    text = re.sub(r"\s*\([^()]*%TIMEOUT%[^()]*\)", "", text)       # ( … %TIMEOUT% … )
+    text = re.sub(r"[^\n.!?]*%TIMEOUT%[^\n.!?]*[.!?]?", "", text)   # целая фраза
+    return text.replace("%TIMEOUT%", "").strip()
+
+
 # --- проверка прав бота в чате ---------------------------------------------
 # Боту нужны права админа: блокировать участников (кик) и удалять сообщения
 # (whois-ввод + чистка). Без них бот отказывается обрабатывать чат.
@@ -193,11 +203,18 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         known_message = chat.on_known_new_chat_member_message
         timeout = chat.kick_timeout
         notify_delta = chat.notify_delta
-        # шаблоны для alumni-флоу (fallback на константы для старых чатов)
-        alumni_welcome = getattr(chat, "on_alumni_welcome_message", None) \
-            or constants.on_alumni_welcome_message
-        email_prompt = getattr(chat, "on_email_prompt_message", None) \
-            or constants.on_email_prompt_message
+        # редактируемые шаблоны whois-флоу (fallback на константы для старых чатов)
+        whois_templates = {
+            "welcome": getattr(chat, "on_whois_welcome_message", None)
+            or constants.whois_welcome_message,
+            "alumni_welcome": getattr(chat, "on_alumni_welcome_message", None)
+            or constants.on_alumni_welcome_message,
+            "email_prompt": getattr(chat, "on_email_prompt_message", None)
+            or constants.on_email_prompt_message,
+            "name_prompt": getattr(chat, "on_whois_name_message", None)
+            or constants.whois_ask_name_message,
+            "introduce": chat.on_introduce_message,
+        }
 
     for member in update.message.new_chat_members:
         if member.is_bot:
@@ -213,7 +230,7 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             ident = sess.get(TgIdentity, user_id)
             if ident is not None and ident.category and ident.category != "unknown":
                 alum = sess.get(AlumniPerson, ident.alumni_uid) if ident.alumni_uid else None
-                recap = alumni.identity_greeting(ident, alum, alumni_welcome)
+                recap = alumni.identity_greeting(ident, alum, whois_templates["alumni_welcome"])
                 if isinstance(username, str) and username.strip():
                     ident.username = alumni.normalize_username(username)
                 sess.merge(User(chat_id=chat_id, user_id=user_id, whois="known"))
@@ -236,7 +253,7 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             with session_scope() as sess:
                 alum = alumni.find_by_username(sess, username)
                 if alum is not None:
-                    welcome = alumni.alumni_whois_message(alumni_welcome, alum)
+                    welcome = alumni.alumni_whois_message(whois_templates["alumni_welcome"], alum)
                     alumni.upsert_identity(sess, user_id, username=username,
                                            category="alumni", alumni_uid=alum.uid,
                                            source="join")
@@ -250,10 +267,10 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
         # структурированный whois на кнопках: тёплое приветствие + категории
-        welcome_text = await mention_markdown(
-            context.bot, chat_id, user_id, constants.whois_welcome_message)
+        welcome_text = apply_timeout(whois_templates["welcome"], timeout)
+        welcome_text = await mention_markdown(context.bot, chat_id, user_id, welcome_text)
         msg = await whois.start(update, context, chat_id, user_id, username,
-                                welcome_text, alumni_welcome, email_prompt)
+                                welcome_text, whois_templates)
 
         if timeout != 0:
             if notify_delta > 0 and timeout > notify_delta:
@@ -522,10 +539,14 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
                 {"chat_id": selected_chat_id, "action": Actions.set_on_known_new_chat_member_message_response}))],
             [InlineKeyboardButton("Изменить сообщение после успешного представления", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_on_successful_introducion_response}))],
+            [InlineKeyboardButton("Изменить приветствие-знакомство (whois)", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_on_whois_welcome_message}))],
             [InlineKeyboardButton("Изменить приветствие выпускника", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_on_alumni_welcome_message}))],
             [InlineKeyboardButton("Изменить запрос e-mail (выпускник)", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_on_email_prompt_message}))],
+            [InlineKeyboardButton("Изменить запрос имени (whois)", callback_data=json.dumps(
+                {"chat_id": selected_chat_id, "action": Actions.set_on_whois_name_message}))],
             [InlineKeyboardButton("Изменить сообщение напоминания", callback_data=json.dumps(
                 {"chat_id": selected_chat_id, "action": Actions.set_notify_message}))],
             [InlineKeyboardButton("Изменить сообщение после кика", callback_data=json.dumps(
@@ -566,6 +587,8 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
         Actions.set_filter_only_new_users,
         Actions.set_on_alumni_welcome_message,
         Actions.set_on_email_prompt_message,
+        Actions.set_on_whois_welcome_message,
+        Actions.set_on_whois_name_message,
     ]:
         await query.edit_message_text(text="Отправьте новое значение")
         context.user_data["chat_id"] = data["chat_id"]
@@ -783,6 +806,8 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
             Actions.set_filter_only_new_users,
             Actions.set_on_alumni_welcome_message,
             Actions.set_on_email_prompt_message,
+            Actions.set_on_whois_welcome_message,
+            Actions.set_on_whois_name_message,
         ]:
             value = message.text_markdown
             with session_scope() as sess:
@@ -808,6 +833,10 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
                     chat = Chat(id=chat_id, on_alumni_welcome_message=value)
                 elif action == Actions.set_on_email_prompt_message:
                     chat = Chat(id=chat_id, on_email_prompt_message=value)
+                elif action == Actions.set_on_whois_welcome_message:
+                    chat = Chat(id=chat_id, on_whois_welcome_message=value)
+                elif action == Actions.set_on_whois_name_message:
+                    chat = Chat(id=chat_id, on_whois_name_message=value)
                 elif action == Actions.set_regex_filter:
                     if value == "%TURN_OFF%":
                         chat = Chat(id=chat_id, regex_filter=None)

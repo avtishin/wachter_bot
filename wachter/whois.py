@@ -94,14 +94,23 @@ def year_keyboard(years, decade):
 
 
 # --- entry point (called from on_new_chat_member for non-matched users) ----
-async def start(update, context, chat_id, user_id, username, intro_text,
-                alumni_welcome=None, email_prompt=None):
+def _tpl(state, key, default):
+    """Chat-configured template from state, else the constant fallback."""
+    return (state.get("templates") or {}).get(key) or default
+
+
+async def start(update, context, chat_id, user_id, username, intro_text, templates=None):
     """Send the intro + category buttons and init state. Returns the sent msg.
     Chat-configured templates are stashed in state (fallback to constants)."""
+    templates = templates or {}
     state = {
         "chat_id": chat_id, "username": username, "step": "category",
-        "alumni_welcome": alumni_welcome or constants.on_alumni_welcome_message,
-        "email_prompt": email_prompt or constants.on_email_prompt_message,
+        "templates": {
+            "alumni_welcome": templates.get("alumni_welcome") or constants.on_alumni_welcome_message,
+            "email_prompt": templates.get("email_prompt") or constants.on_email_prompt_message,
+            "name_prompt": templates.get("name_prompt") or constants.whois_ask_name_message,
+            "introduce": templates.get("introduce") or "🤍 Добро пожаловать в Мишпуху 2.0!",
+        },
         "bot_msgs": [],   # id-шники промптов бота — удалим в конце
     }
     _states(context)[user_id] = state
@@ -129,7 +138,7 @@ async def on_whois_callback(update, context):
             state["category_choice"] = "alumnus"
             state["step"] = "email"
             await query.edit_message_text(
-                state.get("email_prompt") or constants.on_email_prompt_message)
+                _tpl(state, "email_prompt", constants.on_email_prompt_message))
         elif val == "student":
             state["category_choice"] = "student"
             state["step"] = "program"
@@ -143,7 +152,7 @@ async def on_whois_callback(update, context):
     if kind == "role":
         state["category_choice"] = val   # friend | employee
         state["step"] = "name"
-        await query.edit_message_text(constants.whois_ask_name_message)
+        await query.edit_message_text(_tpl(state, "name_prompt", constants.whois_ask_name_message))
         return
 
     if kind == "prog":
@@ -172,7 +181,7 @@ async def on_whois_callback(update, context):
     if kind == "year":
         state["year"] = int(val)
         state["step"] = "name"
-        await query.edit_message_text(constants.whois_ask_name_message)
+        await query.edit_message_text(_tpl(state, "name_prompt", constants.whois_ask_name_message))
         return
 
 
@@ -239,7 +248,7 @@ def _link_alumnus(session, state, user_id, alum):
                            declared_email=state.get("declared_email"), source="buttons")
     session.merge(User(chat_id=state["chat_id"], user_id=user_id,
                        whois=f"alumni:{alum.uid}"))
-    template = state.get("alumni_welcome") or constants.on_alumni_welcome_message
+    template = _tpl(state, "alumni_welcome", constants.on_alumni_welcome_message)
     return alumni.alumni_whois_message(template, alum)
 
 
@@ -267,7 +276,8 @@ async def _finish_declared(update, context, state, text):
         s.merge(User(chat_id=chat_id, user_id=user_id, whois=text))
     # friendly welcome + searchable #whois summary (no email); drop all inputs
     tag = _declared_tag(state)
-    summary = f"🤍 Добро пожаловать в Мишпуху 2.0!\n{text}"
+    intro = _tpl(state, "introduce", "🤍 Добро пожаловать в Мишпуху 2.0!")
+    summary = f"{intro}\n{text}"
     if tag:
         summary += f"\n\n#whois {tag}"
     await _delete_msg(context, chat_id, update.message.message_id)  # имя от юзера

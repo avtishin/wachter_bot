@@ -26,7 +26,7 @@ from flask import (Flask, request, Response, render_template, redirect,
 import alumni_models as am
 from alumni_models import (AlumniPerson, AlumniChangeLog, AlumniPersonHistory,
                            AlumniProgram, AlumniProgramYear, AlumniCrawl, TgIdentity)
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text as sa_text
 
 import nes_scraper as ns
 import nes_db
@@ -394,6 +394,8 @@ def identity_delete(user_id):
         ident = s.get(TgIdentity, user_id)
         if ident:
             s.delete(ident)
+        # чистим и per-chat whois в users (иначе бот при перезаходе даст «Снова»)
+        s.execute(sa_text("DELETE FROM users WHERE user_id = :uid"), {"uid": user_id})
     return redirect(url_for("identities"))
 
 

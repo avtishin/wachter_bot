@@ -7,9 +7,9 @@ from model import Chat, User, session_scope
 
 
 class TestChatDefaults:
-    def test_default_kick_timeout_is_zero(self):
+    def test_default_kick_timeout_is_30(self):
         col = Chat.__table__.columns["kick_timeout"]
-        assert col.default.arg == 0
+        assert col.default.arg == 30
 
     def test_default_filter_only_new_users_is_false(self):
         col = Chat.__table__.columns["filter_only_new_users"]
@@ -35,7 +35,7 @@ class TestChatCRUD:
         with session_scope() as sess:
             chat = sess.query(Chat).filter(Chat.id == -1001).first()
             assert chat is not None
-            assert chat.kick_timeout == 0
+            assert chat.kick_timeout == 30
 
     def test_update_via_merge(self):
         with session_scope() as sess:

@@ -415,6 +415,7 @@ class TestNewChatMember:
         mock_chat = MagicMock()
         mock_chat.on_new_chat_member_message = "Привет %USER\\_MENTION%! Есть %TIMEOUT%."
         mock_chat.on_known_new_chat_member_message = "Снова привет."
+        mock_chat.on_whois_welcome_message = "Мишпуха, у вас есть %TIMEOUT%"
         mock_chat.kick_timeout = 0
         mock_sess = MagicMock()
         mock_sess.get.return_value = None  # нет tg_identity
@@ -458,6 +459,7 @@ class TestNewChatMember:
         mock_chat = MagicMock()
         mock_chat.on_new_chat_member_message = "Привет %USER\\_MENTION%!"
         mock_chat.on_known_new_chat_member_message = "Снова."
+        mock_chat.on_whois_welcome_message = "Мишпуха"
         mock_chat.kick_timeout = 0
         mock_sess = MagicMock()
         mock_sess.get.return_value = None  # нет tg_identity ни у кого
@@ -560,6 +562,7 @@ class TestNewChatMember:
         mock_chat = MagicMock()
         mock_chat.on_new_chat_member_message = "Есть %TIMEOUT% на представление."
         mock_chat.on_known_new_chat_member_message = "Снова."
+        mock_chat.on_whois_welcome_message = "Мишпуха, у вас есть %TIMEOUT%"
         mock_chat.kick_timeout = 15
         mock_chat.notify_delta = 10
         mock_sess = MagicMock()

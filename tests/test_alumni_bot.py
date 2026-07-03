@@ -100,6 +100,12 @@ async def test_rejoin_shows_recap_not_snova(mock_context):
     assert "Tishin A" in sent and "#whois MAE'2019" in sent   # recap, not "Снова"
 
 
+def test_apply_timeout():
+    assert actions.apply_timeout("есть %TIMEOUT%!", 30) == "есть 30 мин.!"
+    out = actions.apply_timeout("Привет (у вас есть %TIMEOUT%):", 0)
+    assert "%TIMEOUT%" not in out and "не установлен" not in out and "Привет" in out
+
+
 async def test_bot_missing_rights():
     def member(**kw):
         return SimpleNamespace(**kw)

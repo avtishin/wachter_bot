@@ -105,5 +105,7 @@ class Actions(IntEnum):
     # добавлены в конец, чтобы не сдвигать значения существующих
     set_on_alumni_welcome_message = auto()
     set_on_email_prompt_message = auto()
+    set_on_whois_welcome_message = auto()
+    set_on_whois_name_message = auto()
 
 
