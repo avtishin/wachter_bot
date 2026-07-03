@@ -1,60 +1,59 @@
 {% extends "base.html" %}
-{% block title %}Идентичности — NES Alumni{% endblock %}
+{% block title %}Участники чата — NES Alumni{% endblock %}
 {% block body %}
+{% set labels = {'alumni':'выпускник','student':'студент','unresolved_alumni':'не найден в базе','friend':'друг','employee':'сотрудник','unknown':'неизвестно'} %}
+
 <div style="margin-bottom:14px;">
   {% for c in categories %}
     <a class="badge" href="{{ url_for('identities', category=c) }}"
        style="{% if c==category %}background:var(--accent);color:#fff;{% endif %}">
-      {{ c }}: {{ counts.get(c, 0) }}</a>
+      {{ labels.get(c, c) }}: {{ counts.get(c, 0) }}</a>
   {% endfor %}
   <a class="badge" href="{{ url_for('identities') }}"
      style="{% if not category %}background:var(--accent);color:#fff;{% endif %}">все</a>
 </div>
 
-<form method="get" action="{{ url_for('identities') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
+<form method="get" action="{{ url_for('identities') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:18px;">
   <input type="hidden" name="category" value="{{ category }}">
-  <input type="text" name="q" value="{{ q }}" placeholder="ник или введённое имя…" size="22">
+  <input type="text" name="q" value="{{ q }}" placeholder="ник или введённое имя…" size="22" autofocus>
+  {% if category == 'alumni' %}
   <select name="program">
     <option value="">все программы</option>
-    {% for pr in programs %}
-      <option value="{{ pr }}" {% if pr==program %}selected{% endif %}>{{ pr }}</option>
-    {% endfor %}
+    {% for pr in programs %}<option value="{{ pr }}" {% if pr==program %}selected{% endif %}>{{ pr }}</option>{% endfor %}
   </select>
-  <label class="muted"><input type="checkbox" name="introduced" value="1" {% if introduced %}checked{% endif %}> только представившиеся в чате</label>
+  <select name="year">
+    <option value="">все годы</option>
+    {% for y in years %}<option value="{{ y }}" {% if y==year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+  </select>
+  {% endif %}
   <button class="btn">Найти</button>
-  <span class="muted">{{ total }} записей</span>
+  <span class="muted">{{ total }} чел.</span>
 </form>
 
-<table>
-  <tr><th>username</th><th>категория</th><th>выпускник</th><th>заявлено</th><th>как представился в чате</th><th></th></tr>
+<div class="grid">
   {% for p in people %}
-  <tr>
-    <td>{% if p.username %}@{{ p.username }}{% else %}<span class="muted">—</span>{% endif %}<div class="muted" style="font-size:11px;">{{ p.user_id }}</div></td>
-    <td><span class="pill {{ 'new' if p.category=='alumni' else ('changed' if p.category in ('student','unresolved_alumni') else 'removed' if p.category=='unknown' else '') }}">{{ p.category }}</span></td>
-    <td>{% if p.alumni_uid %}<a href="{{ url_for('alumni_detail', uid=p.alumni_uid) }}">{{ p.alumni_name or p.alumni_uid }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-    <td class="muted" style="font-size:12px;">
-      {% if p.declared_program %}{{ p.declared_program }}{% if p.declared_year %}'{{ p.declared_year }}{% endif %}{% endif %}
-      {% if p.declared_email %}<div>{{ p.declared_email }}</div>{% endif %}
-    </td>
-    <td style="max-width:300px; word-break:break-word; font-size:12px;">{{ p.intro or p.declared_name or '' }}</td>
-    <td style="white-space:nowrap;">
-      <form method="post" action="{{ url_for('identity_category', user_id=p.user_id) }}" style="display:inline;">
-        <button class="btn ghost" name="category" value="friend" title="пометить другом РЭШ" style="padding:4px 8px;">друг</button>
-        <button class="btn ghost" name="category" value="employee" title="пометить сотрудником РЭШ" style="padding:4px 8px;">сотр.</button>
-      </form>
-      <a href="{{ url_for('identity_detail', user_id=p.user_id) }}">открыть / привязать →</a>
-    </td>
-  </tr>
+  <a class="pcard" href="{{ url_for('identity_detail', user_id=p.user_id) }}">
+    <div class="avatar">{{ (p.name or '?')[:1]|upper }}</div>
+    <div style="min-width:0;">
+      <div class="nm">{{ p.name }}
+        <span class="pill {{ 'new' if p.category=='alumni' else ('changed' if p.category in ('student','unresolved_alumni') else 'removed' if p.category=='unknown' else '') }}">{{ labels.get(p.category, p.category) }}</span>
+      </div>
+      {% if p.username %}<div class="mu">@{{ p.username }}</div>{% endif %}
+      {% if p.classes %}<div class="mu">{{ p.classes|join(', ') }}</div>{% endif %}
+      {% if p.info %}<div class="mu">{{ p.info }}</div>{% endif %}
+      {% if p.residence %}<div class="mu">📍 {{ p.residence }}</div>{% endif %}
+    </div>
+  </a>
   {% else %}
-  <tr><td colspan="6" class="muted">Ничего не найдено.</td></tr>
+  <p class="muted">Ничего не найдено.</p>
   {% endfor %}
-</table>
+</div>
 
 {% if pages > 1 %}
 <div class="pager">
-  {% if page > 1 %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, q=q, introduced='1' if introduced else None, page=page-1) }}">← назад</a>{% endif %}
+  {% if page > 1 %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, year=year, q=q, page=page-1) }}">← назад</a>{% endif %}
   <span class="muted">стр. {{ page }} из {{ pages }}</span>
-  {% if page < pages %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, q=q, introduced='1' if introduced else None, page=page+1) }}">вперёд →</a>{% endif %}
+  {% if page < pages %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, year=year, q=q, page=page+1) }}">вперёд →</a>{% endif %}
 </div>
 {% endif %}
 {% endblock %}

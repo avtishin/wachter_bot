@@ -1,12 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Идентичность {{ i.user_id }} — NES Alumni{% endblock %}
+{% block title %}Участник {{ i.user_id }} — NES Alumni{% endblock %}
 {% block body %}
-<p><a href="{{ url_for('identities') }}">← к идентичностям</a></p>
+{% set labels = {'alumni':'выпускник','student':'студент','unresolved_alumni':'не найден в базе','friend':'друг','employee':'сотрудник','unknown':'неизвестно'} %}
+<p><a href="{{ url_for('identities') }}">← к участникам чата</a></p>
 
 <div class="panel">
   <h2 style="margin:0 0 10px;">
     {% if i.username %}@{{ i.username }}{% else %}<span class="muted">без ника</span>{% endif %}
-    <span class="pill {{ 'new' if i.category=='alumni' else ('changed' if i.category in ('student','unresolved_alumni') else 'removed' if i.category=='unknown' else '') }}">{{ i.category }}</span>
+    <span class="pill {{ 'new' if i.category=='alumni' else ('changed' if i.category in ('student','unresolved_alumni') else 'removed' if i.category=='unknown' else '') }}">{{ labels.get(i.category, i.category) }}</span>
   </h2>
   <div class="kv">
     <dt>user_id</dt><dd>{{ i.user_id }}</dd>
@@ -25,7 +26,7 @@
   <h2>Сменить категорию</h2>
   <form method="post" action="{{ url_for('identity_category', user_id=i.user_id) }}" style="display:flex; gap:8px; flex-wrap:wrap;">
     {% for c in categories %}
-      <button class="btn ghost" name="category" value="{{ c }}" {% if c==i.category %}disabled{% endif %}>{{ c }}</button>
+      <button class="btn ghost" name="category" value="{{ c }}" {% if c==i.category %}disabled{% endif %}>{{ labels.get(c, c) }}</button>
     {% endfor %}
     <span class="muted">(смена на не-alumni снимает привязку)</span>
   </form>
@@ -39,13 +40,14 @@
   </form>
   {% if candidates %}
   <table>
-    <tr><th>имя</th><th>классы</th><th>telegram</th><th>email</th><th></th></tr>
+    <tr><th>имя</th><th>классы</th><th>работа / город</th><th>telegram</th><th></th><th></th></tr>
     {% for a in candidates %}
     <tr>
-      <td>{{ a.name }}</td>
+      <td><a href="{{ url_for('alumni_detail', uid=a.uid) }}" target="_blank" rel="noopener">{{ a.name }} ↗</a></td>
       <td class="muted">{{ a.classes|join(', ') }}</td>
+      <td class="muted" style="max-width:240px;">{{ a.position }}{% if a.position and a.residence %} · {% endif %}{{ a.residence }}</td>
       <td class="muted">{% if a.telegram %}@{{ a.telegram }}{% endif %}</td>
-      <td class="muted">{{ a.emails|join(', ') }}</td>
+      <td class="muted" style="font-size:11px;">{{ a.emails|join(', ') }}</td>
       <td>
         <form method="post" action="{{ url_for('identity_resolve', user_id=i.user_id) }}">
           <input type="hidden" name="alumni_uid" value="{{ a.uid }}">
@@ -55,8 +57,18 @@
     </tr>
     {% endfor %}
   </table>
+  <p class="muted" style="font-size:12px;">Кликните имя, чтобы открыть карточку выпускника в новой вкладке и проверить, тот ли это человек.</p>
   {% elif aq %}
   <p class="muted">Ничего не найдено по «{{ aq }}».</p>
   {% endif %}
+</div>
+
+<div class="panel">
+  <h2>Удалить запись</h2>
+  <form method="post" action="{{ url_for('identity_delete', user_id=i.user_id) }}"
+        onsubmit="return confirm('Удалить эту запись участника из базы? Действие необратимо.');">
+    <button class="btn" style="background:#c81e1e;">Удалить участника из базы</button>
+    <span class="muted">полностью удаляет tg_identity этого пользователя</span>
+  </form>
 </div>
 {% endblock %}

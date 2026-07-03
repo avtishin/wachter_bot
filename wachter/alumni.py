@@ -147,3 +147,17 @@ def alumni_whois_message(template, alum):
     if classes:
         msg += f"\n\n#whois {classes}"
     return msg
+
+
+def identity_greeting(ident, alum, template):
+    """Recap for a returning known participant: alumnus card, or their declared
+    name/program/intro — instead of a bare 'welcome again'."""
+    if alum is not None:
+        return alumni_whois_message(template, alum)
+    prog, year = ident.declared_program, ident.declared_year
+    tag = f"{prog}'{year}" if prog and year else (prog or "")
+    body = ident.intro or ident.declared_name or ""
+    msg = (f"С возвращением!\n{body}").rstrip() if body else "С возвращением!"
+    if tag:
+        msg += f"\n\n#whois {tag}"
+    return msg

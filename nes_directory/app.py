@@ -32,6 +32,7 @@ import nes_scraper as ns
 import nes_db
 import runner
 import alumni_link
+import translit
 
 IDENTITY_CATEGORIES = ["alumni", "student", "unresolved_alumni",
                        "friend", "employee", "unknown"]
@@ -225,7 +226,13 @@ def alumni():
         if not show_removed:
             q = q.filter(AlumniPerson.removed_at.is_(None))
         if query:
-            q = q.filter(AlumniPerson.name.ilike(f"%{query}%"))
+            # имя ищем на обоих языках (рус → транслит на латиницу базы);
+            # город/страну — по сырому запросу в тексте карточки
+            conds = [AlumniPerson.name.ilike(f"%{query}%"),
+                     AlumniPerson.full.cast(am.Text).ilike(f"%{query}%")]
+            if translit.has_cyrillic(query):
+                conds.append(AlumniPerson.name.ilike(f"%{translit.ru_to_lat(query)}%"))
+            q = q.filter(or_(*conds))
         if prog:
             q = q.filter(AlumniPerson.programs.cast(am.Text).ilike(f"%{prog}%"))
         if year.isdigit():
@@ -286,41 +293,56 @@ def changes():
 def identities():
     cat = (request.args.get("category") or "").strip()
     prog = (request.args.get("program") or "").strip()
+    year = (request.args.get("year") or "").strip()
     q = (request.args.get("q") or "").strip()
-    introduced = request.args.get("introduced") == "1"
     page = max(1, int(request.args.get("page", 1)))
     with am.session_scope() as s:
         query = s.query(TgIdentity)
         if cat:
             query = query.filter(TgIdentity.category == cat)
-        if prog:
-            query = query.filter(TgIdentity.declared_program == prog)
-        if introduced:   # только представившиеся в чате (кнопочный whois)
-            query = query.filter(TgIdentity.source == "buttons")
         if q:
             like = f"%{q}%"
             query = query.filter(or_(TgIdentity.username.ilike(like),
                                      TgIdentity.declared_name.ilike(like)))
+        # программа/год фильтруют выпускников по привязанной карточке
+        if prog or year.isdigit():
+            query = query.join(AlumniPerson, TgIdentity.alumni_uid == AlumniPerson.uid)
+            if prog:
+                query = query.filter(AlumniPerson.programs.cast(am.Text).ilike(f"%{prog}%"))
+            if year.isdigit():
+                query = query.filter(AlumniPerson.classes.cast(am.Text).like(f"%'{year}%"))
         total = query.count()
         rows = (query.order_by(TgIdentity.category, TgIdentity.username)
                 .limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE).all())
         counts = dict(s.query(TgIdentity.category, func.count())
                       .group_by(TgIdentity.category).all())
-        programs = [p for (p,) in s.query(TgIdentity.declared_program).distinct()
-                    .filter(TgIdentity.declared_program.isnot(None)).order_by(TgIdentity.declared_program)]
+        years = [str(y) for (y,) in s.query(AlumniPerson.grad_year_max).distinct()
+                 .filter(AlumniPerson.grad_year_max.isnot(None))
+                 .order_by(AlumniPerson.grad_year_max.desc())]
         uids = [r.alumni_uid for r in rows if r.alumni_uid]
-        names = (dict(s.query(AlumniPerson.uid, AlumniPerson.name)
-                      .filter(AlumniPerson.uid.in_(uids)).all()) if uids else {})
-        people = [{"user_id": r.user_id, "username": r.username, "category": r.category,
-                   "alumni_uid": r.alumni_uid, "alumni_name": names.get(r.alumni_uid),
-                   "declared_name": r.declared_name, "declared_program": r.declared_program,
-                   "declared_year": r.declared_year, "declared_email": r.declared_email,
-                   "intro": r.intro, "source": r.source}
-                  for r in rows]
+        alum = {a.uid: a for a in s.query(AlumniPerson).filter(AlumniPerson.uid.in_(uids))} if uids else {}
+        people = []
+        for r in rows:
+            card = {"user_id": r.user_id, "username": r.username, "category": r.category,
+                    "alumni_uid": r.alumni_uid}
+            a = alum.get(r.alumni_uid)
+            if a is not None:
+                full = a.full or {}
+                work = full.get("work") or []
+                card.update(name=a.name, classes=full.get("listed_classes") or [],
+                            info=(work[0].get("position", "") if work else ""),
+                            residence=full.get("residence", ""))
+            else:
+                nm = r.declared_name or (f"@{r.username}" if r.username else str(r.user_id))
+                cls = [f"{r.declared_program}'{r.declared_year}"] if r.declared_program else \
+                      ([r.declared_program] if r.declared_program else [])
+                card.update(name=nm, classes=cls, info=r.intro or "", residence="")
+            people.append(card)
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     return render_template("identities_list.html", people=people, total=total, page=page,
-                           pages=pages, q=q, category=cat, program=prog, programs=programs,
-                           introduced=introduced, categories=IDENTITY_CATEGORIES, counts=counts)
+                           pages=pages, q=q, category=cat, program=prog, year=year,
+                           programs=load_programs(), years=years,
+                           categories=IDENTITY_CATEGORIES, counts=counts)
 
 
 @app.route("/identities/<int:user_id>")
@@ -340,13 +362,29 @@ def identity_detail(user_id):
             linked = {"uid": a.uid, "name": a.name} if a else None
         candidates = []
         if aq:
-            like = f"%{aq}%"
-            for a in (s.query(AlumniPerson).filter(AlumniPerson.name.ilike(like))
+            conds = [AlumniPerson.name.ilike(f"%{aq}%")]
+            if translit.has_cyrillic(aq):   # искать латинское имя по русскому вводу
+                conds.append(AlumniPerson.name.ilike(f"%{translit.ru_to_lat(aq)}%"))
+            for a in (s.query(AlumniPerson).filter(or_(*conds))
                       .order_by(AlumniPerson.name).limit(20)):
-                candidates.append({"uid": a.uid, "name": a.name, "classes": a.classes or [],
-                                   "telegram": a.telegram_username, "emails": a.emails or []})
+                full = a.full or {}
+                work = full.get("work") or []
+                candidates.append({
+                    "uid": a.uid, "name": a.name, "classes": a.classes or [],
+                    "telegram": a.telegram_username, "emails": a.emails or [],
+                    "residence": full.get("residence", ""),
+                    "position": work[0].get("position", "") if work else ""})
     return render_template("identity_detail.html", i=data, linked=linked,
                            candidates=candidates, aq=aq, categories=IDENTITY_CATEGORIES)
+
+
+@app.route("/identities/<int:user_id>/delete", methods=["POST"])
+def identity_delete(user_id):
+    with am.session_scope() as s:
+        ident = s.get(TgIdentity, user_id)
+        if ident:
+            s.delete(ident)
+    return redirect(url_for("identities"))
 
 
 @app.route("/identities/<int:user_id>/resolve", methods=["POST"])
@@ -373,8 +411,7 @@ def identity_category(user_id):
             ident.category = cat
             if cat != "alumni":
                 ident.alumni_uid = None
-    # вернуться туда, откуда пришли (список или карточка)
-    return redirect(request.referrer or url_for("identity_detail", user_id=user_id))
+    return redirect(url_for("identity_detail", user_id=user_id))
 
 
 start_scheduler_once()

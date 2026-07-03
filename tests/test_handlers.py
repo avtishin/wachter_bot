@@ -442,6 +442,7 @@ class TestNewChatMember:
             mock_chat,
             mock_user,  # пользователь уже есть в БД
         ]
+        mock_sess.get.return_value = None  # нет tg_identity → обычное «Снова»
 
         with patch("actions.session_scope") as mock_scope:
             mock_scope.return_value.__enter__.return_value = mock_sess

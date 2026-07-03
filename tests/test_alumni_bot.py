@@ -71,6 +71,35 @@ def test_alumni_whois_message_includes_bio_and_tag():
     assert "#whois MAE'2019" in msg
 
 
+def test_identity_greeting_declared_and_alumnus():
+    declared = SimpleNamespace(declared_program="MAE", declared_year=2019,
+                               intro="Алекс, работаю в X", declared_name="Алекс")
+    m = al.identity_greeting(declared, None, "%NAME%, %CLASS%")
+    assert "Алекс, работаю в X" in m and "#whois MAE'2019" in m
+    alum = SimpleNamespace(name="Tishin A", first_name="A", last_name="T",
+                           classes=["MAE'2019"], programs=[], full={})
+    m2 = al.identity_greeting(SimpleNamespace(), alum, "%NAME%, %CLASS%")
+    assert "Tishin A, MAE'2019" in m2 and "#whois MAE'2019" in m2
+
+
+async def test_rejoin_shows_recap_not_snova(mock_context):
+    chat_id, uid = -100, 900
+    with session_scope() as s:
+        s.add(Chat(id=chat_id, on_known_new_chat_member_message="Снова"))
+        s.add(AlumniPerson(uid="10", name="Tishin A", first_name="A", last_name="T",
+                           classes=["MAE'2019"], programs=[], grad_year_max=2019))
+        s.add(User(chat_id=chat_id, user_id=uid, whois="alumni:10"))
+        s.add(TgIdentity(user_id=uid, category="alumni", alumni_uid="10"))
+    update = make_update(chat_id=chat_id)
+    member = MagicMock()
+    member.id, member.is_bot, member.username = uid, False, "vbt"
+    update.message.new_chat_members = [member]
+    update.effective_chat.id = chat_id
+    await actions.on_new_chat_member(update, mock_context)
+    sent = update.message.reply_text.call_args[0][0]
+    assert "Tishin A" in sent and "#whois MAE'2019" in sent   # recap, not "Снова"
+
+
 async def test_bot_missing_rights():
     def member(**kw):
         return SimpleNamespace(**kw)

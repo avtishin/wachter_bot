@@ -13,22 +13,21 @@ Two services share **one** Postgres:
 Create one Railway Postgres. Note its connection string as `DATABASE_URL`
 (Railway gives `postgres://…`; both apps normalize it to `postgresql://…`).
 
-## 2. Create the shared schema (once, ordered)
+## 2. Sync the two data sources into Postgres (one command)
 
-The scraper owns the `alumni_*` / `tg_identity` tables — create them first so
-the bot can read them:
-
-```bash
-# from nes_directory/, with DATABASE_URL pointing at the Railway Postgres
-DATABASE_URL=<railway> python -c "import alumni_models; alumni_models.init_db()"
-```
-
-Then load data (either migrate an existing local SQLite export or scrape fresh):
+Both sources — the scraped directory (`out/alumni.json` + `raw_html/cards/`)
+and the chat roster (`members.csv`) — are synced with a single bootstrap that
+creates the `alumni_*` / `tg_identity` schema, ingests the directory, seeds
+`tg_identity` from the roster, and reconciles. Run it from your local machine
+with `DATABASE_URL` pointing at the Railway Postgres:
 
 ```bash
-DATABASE_URL=<railway> python nes_db.py ingest          # needs out/alumni.json
-DATABASE_URL=<railway> python seed_members.py members.csv   # optional: seed roster
+# from nes_directory/, with your local out/alumni.json + members.csv present
+DATABASE_URL=<railway> python bootstrap.py
 ```
+
+Re-run it any time to refresh (idempotent). To scrape fresh instead of using a
+local export, run `python nes_scraper.py all` first (needs `creds.env`).
 
 ## 3. Bot service (Railway)
 

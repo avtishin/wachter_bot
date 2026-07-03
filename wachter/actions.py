@@ -8,7 +8,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from model import Chat, User, session_scope
+from model import Chat, User, TgIdentity, AlumniPerson, session_scope
 from constants import Actions
 import constants
 import alumni
@@ -211,11 +211,18 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
                 User.chat_id == chat_id, User.user_id == user_id
             ).first()
             user_found = user is not None
+            # при перезаходе показываем recap (имя/программа/интро), а не «Снова»
+            recap = None
+            if user_found:
+                ident = sess.get(TgIdentity, user_id)
+                if ident is not None:
+                    alum = sess.get(AlumniPerson, ident.alumni_uid) if ident.alumni_uid else None
+                    recap = alumni.identity_greeting(ident, alum, alumni_welcome)
 
         logger.info(f"on_new_chat_member: chat_id={chat_id} user_id={user_id} found_in_db={user_found}")
 
         if user_found:
-            await update.message.reply_text(known_message)
+            await update.message.reply_text(recap or known_message)
             continue
 
         # узнаём выпускника по telegram-нику (member.username: str | None)
