@@ -10,3 +10,4 @@ __pycache__/
 members.csv
 members_enriched.csv
 pgdata/
+botdata/

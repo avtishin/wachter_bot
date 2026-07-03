@@ -9,12 +9,39 @@ services:
       - "5432:5432"
     volumes:
       - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wachter -d wachter"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
+  # wachter Telegram bot — built from its production Dockerfile (repo root).
+  # Runs alembic upgrade head, then polling. TELEGRAM_TOKEN comes from ../bot.env
+  bot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: wachter-bot
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ../bot.env
+    environment:
+      - DATABASE_URL=postgresql://wachter:wachter@db:5432/wachter
+      - PERSISTENCE_PATH=/app/data/bot_persistence
+    volumes:
+      - ./botdata:/app/data
+    restart: unless-stopped
+
+  # alumni scraper + dashboard
   web:
     build: .
     image: nes-alumni
-    depends_on: [db]
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
     # NES_LOGIN / NES_PASSWORD are read from creds.env (same file the CLI uses)
