@@ -205,28 +205,32 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         user_id = member.id
 
         await cancel_kick_jobs(context.bot, context.job_queue, chat_id, user_id)
+        username = member.username
 
+        # 1) известная идентичность (в т.ч. сид из members.csv) → recap, без кика
+        recap = None
         with session_scope() as sess:
-            user = sess.query(User).filter(
-                User.chat_id == chat_id, User.user_id == user_id
-            ).first()
-            user_found = user is not None
-            # при перезаходе показываем recap (имя/программа/интро), а не «Снова»
-            recap = None
-            if user_found:
-                ident = sess.get(TgIdentity, user_id)
-                if ident is not None:
-                    alum = sess.get(AlumniPerson, ident.alumni_uid) if ident.alumni_uid else None
-                    recap = alumni.identity_greeting(ident, alum, alumni_welcome)
-
-        logger.info(f"on_new_chat_member: chat_id={chat_id} user_id={user_id} found_in_db={user_found}")
-
-        if user_found:
-            await update.message.reply_text(recap or known_message)
+            ident = sess.get(TgIdentity, user_id)
+            if ident is not None and ident.category and ident.category != "unknown":
+                alum = sess.get(AlumniPerson, ident.alumni_uid) if ident.alumni_uid else None
+                recap = alumni.identity_greeting(ident, alum, alumni_welcome)
+                if isinstance(username, str) and username.strip():
+                    ident.username = alumni.normalize_username(username)
+                sess.merge(User(chat_id=chat_id, user_id=user_id, whois="known"))
+        if recap is not None:
+            await update.message.reply_text(recap)
             continue
 
-        # узнаём выпускника по telegram-нику (member.username: str | None)
-        username = member.username
+        # 2) известен по users (старые #whois без идентичности) → обычное приветствие
+        with session_scope() as sess:
+            user_found = sess.query(User).filter(
+                User.chat_id == chat_id, User.user_id == user_id).first() is not None
+        logger.info(f"on_new_chat_member: chat_id={chat_id} user_id={user_id} found_in_db={user_found}")
+        if user_found:
+            await update.message.reply_text(known_message)
+            continue
+
+        # 3) узнаём выпускника по telegram-нику (member.username: str | None)
         welcome = None
         if isinstance(username, str) and username.strip():
             with session_scope() as sess:
@@ -236,7 +240,6 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
                     alumni.upsert_identity(sess, user_id, username=username,
                                            category="alumni", alumni_uid=alum.uid,
                                            source="join")
-                    # помечаем известным: повторный вход — как знакомого, без кика
                     sess.merge(User(chat_id=chat_id, user_id=user_id,
                                     whois=f"alumni:{alum.uid}"))
         if welcome is not None:

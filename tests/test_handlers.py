@@ -417,6 +417,7 @@ class TestNewChatMember:
         mock_chat.on_known_new_chat_member_message = "Снова привет."
         mock_chat.kick_timeout = 0
         mock_sess = MagicMock()
+        mock_sess.get.return_value = None  # нет tg_identity
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat,  # Chat query
             None,       # User query — нового пользователя нет в БД
@@ -459,6 +460,7 @@ class TestNewChatMember:
         mock_chat.on_known_new_chat_member_message = "Снова."
         mock_chat.kick_timeout = 0
         mock_sess = MagicMock()
+        mock_sess.get.return_value = None  # нет tg_identity ни у кого
         # Chat один раз, затем 3 раза User (для каждого участника)
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat, None, None, None
@@ -503,6 +505,7 @@ class TestNewChatMember:
         mock_chat.on_known_new_chat_member_message = "Снова."
         mock_chat.kick_timeout = 0
         mock_sess = MagicMock()
+        mock_sess.get.return_value = None
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat, None
         ]
@@ -524,6 +527,7 @@ class TestNewChatMember:
         mock_chat.kick_timeout = 30
         mock_chat.notify_delta = 10
         mock_sess = MagicMock()
+        mock_sess.get.return_value = None
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat, None
         ]
@@ -558,6 +562,7 @@ class TestNewChatMember:
         mock_chat.kick_timeout = 15
         mock_chat.notify_delta = 10
         mock_sess = MagicMock()
+        mock_sess.get.return_value = None
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat, None
         ]

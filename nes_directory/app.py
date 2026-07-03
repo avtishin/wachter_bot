@@ -25,7 +25,7 @@ from flask import (Flask, request, Response, render_template, redirect,
 
 import alumni_models as am
 from alumni_models import (AlumniPerson, AlumniChangeLog, AlumniPersonHistory,
-                           AlumniProgram, AlumniCrawl, TgIdentity)
+                           AlumniProgram, AlumniProgramYear, AlumniCrawl, TgIdentity)
 from sqlalchemy import func, or_
 
 import nes_scraper as ns
@@ -304,21 +304,31 @@ def identities():
             like = f"%{q}%"
             query = query.filter(or_(TgIdentity.username.ilike(like),
                                      TgIdentity.declared_name.ilike(like)))
-        # программа/год фильтруют выпускников по привязанной карточке
+        # программа/год: у выпускника — по привязанной карточке (код класса),
+        # у студента/ненайденного — по заявленным полям
         if prog or year.isdigit():
-            query = query.join(AlumniPerson, TgIdentity.alumni_uid == AlumniPerson.uid)
-            if prog:
-                query = query.filter(AlumniPerson.programs.cast(am.Text).ilike(f"%{prog}%"))
-            if year.isdigit():
-                query = query.filter(AlumniPerson.classes.cast(am.Text).like(f"%'{year}%"))
+            if cat == "alumni":
+                query = query.join(AlumniPerson, TgIdentity.alumni_uid == AlumniPerson.uid)
+                if prog:
+                    query = query.filter(AlumniPerson.classes.cast(am.Text).ilike(f"%{prog}'%"))
+                if year.isdigit():
+                    query = query.filter(AlumniPerson.classes.cast(am.Text).like(f"%'{year}%"))
+            else:
+                if prog:
+                    query = query.filter(TgIdentity.declared_program == prog)
+                if year.isdigit():
+                    query = query.filter(TgIdentity.declared_year == int(year))
         total = query.count()
         rows = (query.order_by(TgIdentity.category, TgIdentity.username)
                 .limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE).all())
         counts = dict(s.query(TgIdentity.category, func.count())
                       .group_by(TgIdentity.category).all())
-        years = [str(y) for (y,) in s.query(AlumniPerson.grad_year_max).distinct()
-                 .filter(AlumniPerson.grad_year_max.isnot(None))
-                 .order_by(AlumniPerson.grad_year_max.desc())]
+        prog_codes = sorted({c for (c,) in s.query(AlumniProgramYear.program_code).distinct()})
+        alum_years = {y for (y,) in s.query(AlumniPerson.grad_year_max).distinct()
+                      if y is not None}
+        decl_years = {y for (y,) in s.query(TgIdentity.declared_year).distinct()
+                      if y is not None}
+        years = [str(y) for y in sorted(alum_years | decl_years, reverse=True)]
         uids = [r.alumni_uid for r in rows if r.alumni_uid]
         alum = {a.uid: a for a in s.query(AlumniPerson).filter(AlumniPerson.uid.in_(uids))} if uids else {}
         people = []
@@ -341,7 +351,7 @@ def identities():
     pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     return render_template("identities_list.html", people=people, total=total, page=page,
                            pages=pages, q=q, category=cat, program=prog, year=year,
-                           programs=load_programs(), years=years,
+                           programs=prog_codes, years=years,
                            categories=IDENTITY_CATEGORIES, counts=counts)
 
 

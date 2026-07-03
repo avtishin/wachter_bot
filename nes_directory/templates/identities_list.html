@@ -16,7 +16,7 @@
 <form method="get" action="{{ url_for('identities') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:18px;">
   <input type="hidden" name="category" value="{{ category }}">
   <input type="text" name="q" value="{{ q }}" placeholder="ник или введённое имя…" size="22" autofocus>
-  {% if category == 'alumni' %}
+  {% if category in ('alumni', 'student', 'unresolved_alumni') %}
   <select name="program">
     <option value="">все программы</option>
     {% for pr in programs %}<option value="{{ pr }}" {% if pr==program %}selected{% endif %}>{{ pr }}</option>{% endfor %}
