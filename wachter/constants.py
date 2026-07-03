@@ -58,8 +58,16 @@ Regex фильтр: ```{regex_filter}```
 default_kick_timeout = 0
 
 # Приветствие найденного в базе выпускника. Плейсхолдеры: %NAME% %FIRST_NAME%
-# %LAST_NAME% %CLASS% %PROGRAM%. Пока константа (не колонка chats).
-on_alumni_welcome_message = '%NAME%, %CLASS% — добро пожаловать! 🎓'
+# %LAST_NAME% %CLASS% %PROGRAM%.
+on_alumni_welcome_message = 'Добро пожаловать в Мишпуху 2.0, %NAME% (%CLASS%)! 🤍'
+
+# Тёплое приветствие в начале кнопочного whois (для ненайденных). %USER_MENTION%.
+whois_welcome_message = (
+    'Привет, %USER_MENTION%.\n'
+    'Рады видеть тебя в Мишпухе 2.0 🤍\n\n'
+    'Это чат студентов, выпускников, сотрудников и друзей РЭШ.\n'
+    'Давайте познакомимся — выберите, кто вы:'
+)
 
 # Запрос почты на ветке «Я выпускник» кнопочного whois.
 on_email_prompt_message = (

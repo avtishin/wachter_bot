@@ -249,12 +249,11 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         if message_text == constants.skip_on_new_chat_member_message:
             continue
 
-        timeout_str = f"{timeout} мин." if timeout > 0 else "не установлен"
-        msg_markdown = await mention_markdown(context.bot, chat_id, user_id, message_text)
-        msg_markdown = msg_markdown.replace("%TIMEOUT%", timeout_str)
-        # структурированный whois на кнопках (категория → … → имя)
+        # структурированный whois на кнопках: тёплое приветствие + категории
+        welcome_text = await mention_markdown(
+            context.bot, chat_id, user_id, constants.whois_welcome_message)
         msg = await whois.start(update, context, chat_id, user_id, username,
-                                msg_markdown, alumni_welcome, email_prompt)
+                                welcome_text, alumni_welcome, email_prompt)
 
         if timeout != 0:
             if notify_delta > 0 and timeout > notify_delta:

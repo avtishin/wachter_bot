@@ -117,6 +117,20 @@ async def test_completion_deletes_input_and_posts_whois():
     assert "#whois" in summary and "MAE'2019" in summary and "Иванов Иван" in summary
 
 
+async def test_completion_deletes_bot_prompts_and_friendly_welcome():
+    _seed_programs()
+    ctx = _ctx()
+    uid = 810
+    whois._states(ctx)[uid] = {"chat_id": CHAT_ID, "username": "s",
+                               "category_choice": "student", "program": "MAE",
+                               "year": 2019, "step": "name", "bot_msgs": [111, 222]}
+    await whois.try_whois_text(_text(uid, "Иван"), ctx)
+    # deleted: two bot prompts (111,222) + the user's name message
+    assert ctx.bot.delete_message.call_count == 3
+    summary = ctx.bot.send_message.call_args[0][1]
+    assert "Добро пожаловать в Мишпуху 2.0" in summary and "#whois MAE'2019" in summary
+
+
 async def test_email_message_is_deleted():
     _seed_programs()
     ctx = _ctx()

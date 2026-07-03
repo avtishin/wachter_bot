@@ -98,13 +98,17 @@ async def start(update, context, chat_id, user_id, username, intro_text,
                 alumni_welcome=None, email_prompt=None):
     """Send the intro + category buttons and init state. Returns the sent msg.
     Chat-configured templates are stashed in state (fallback to constants)."""
-    _states(context)[user_id] = {
+    state = {
         "chat_id": chat_id, "username": username, "step": "category",
         "alumni_welcome": alumni_welcome or constants.on_alumni_welcome_message,
         "email_prompt": email_prompt or constants.on_email_prompt_message,
+        "bot_msgs": [],   # id-шники промптов бота — удалим в конце
     }
-    return await update.message.reply_text(
+    _states(context)[user_id] = state
+    msg = await update.message.reply_text(
         intro_text, reply_markup=category_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    state["bot_msgs"].append(msg.message_id)
+    return msg
 
 
 # --- callback handler (pattern ^w:) ----------------------------------------
@@ -193,6 +197,7 @@ async def try_whois_text(update, context):
         await _delete_msg(context, chat_id, msg_id)
         if welcome is not None:
             await _cancel_kick(context, chat_id, user_id)
+            await _cleanup_prompts(context, chat_id, state)
             _clear(context, user_id)
             await context.bot.send_message(chat_id, welcome)
             return True
@@ -201,8 +206,9 @@ async def try_whois_text(update, context):
         state["step"] = "program"
         with session_scope() as s:
             keyboard = program_keyboard(s)
-        await context.bot.send_message(chat_id, "Не нашли по почте — выберите программу:",
-                                       reply_markup=keyboard)
+        m = await context.bot.send_message(chat_id, "Не нашли по почте — выберите программу:",
+                                           reply_markup=keyboard)
+        state.setdefault("bot_msgs", []).append(m.message_id)
         return True
 
     if state["step"] == "name":
@@ -213,11 +219,17 @@ async def try_whois_text(update, context):
 
 # --- completion ------------------------------------------------------------
 async def _delete_msg(context, chat_id, message_id):
-    """Best-effort delete of a user's whois input (needs admin delete rights)."""
+    """Best-effort delete of a message (needs admin delete rights)."""
     try:
         await context.bot.delete_message(chat_id, message_id)
     except Exception:
         pass
+
+
+async def _cleanup_prompts(context, chat_id, state):
+    """Delete all of the bot's whois prompt messages once the flow is done."""
+    for mid in state.get("bot_msgs", []):
+        await _delete_msg(context, chat_id, mid)
 
 
 def _link_alumnus(session, state, user_id, alum):
@@ -253,10 +265,13 @@ async def _finish_declared(update, context, state, text):
             declared_year=year, declared_email=state.get("declared_email"),
             intro=text, source="buttons")
         s.merge(User(chat_id=chat_id, user_id=user_id, whois=text))
-    # repost as a searchable #whois summary (no email), then drop the raw input
+    # friendly welcome + searchable #whois summary (no email); drop all inputs
     tag = _declared_tag(state)
-    summary = f"{text}\n\n#whois {tag}".rstrip()
-    await _delete_msg(context, chat_id, update.message.message_id)
+    summary = f"🤍 Добро пожаловать в Мишпуху 2.0!\n{text}"
+    if tag:
+        summary += f"\n\n#whois {tag}"
+    await _delete_msg(context, chat_id, update.message.message_id)  # имя от юзера
+    await _cleanup_prompts(context, chat_id, state)                 # промпты бота
     await _cancel_kick(context, chat_id, user_id)
     _clear(context, user_id)
     await context.bot.send_message(chat_id, summary)

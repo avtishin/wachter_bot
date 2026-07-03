@@ -545,7 +545,8 @@ class TestNewChatMember:
         assert any("notify" in n for n in names)
         assert any("kick" in n for n in names)
 
-    async def test_timeout_placeholder_replaced(self, mock_context):
+    async def test_whois_welcome_sent(self, mock_context):
+        """Новичок (не найден) получает тёплое приветствие whois, без %TIMEOUT%."""
         from actions import on_new_chat_member
         update = self._make_new_member_update()
         sent_texts = []
@@ -572,7 +573,7 @@ class TestNewChatMember:
             await on_new_chat_member(update, mock_context)
 
         assert len(sent_texts) == 1
-        assert "15 мин." in sent_texts[0]
+        assert "Мишпух" in sent_texts[0]
         assert "%TIMEOUT%" not in sent_texts[0]
 
 
