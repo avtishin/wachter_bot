@@ -8,3 +8,6 @@ data/
 members.csv
 members_enriched.csv
 .venv/
+.env
+bot.env
+*.env
