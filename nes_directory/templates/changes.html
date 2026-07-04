@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Изменения — NES Alumni{% endblock %}
+{% block body %}
+<div class="panel">
+  <h2>Последние изменения (change_log)</h2>
+  <table>
+    <tr><th>дата</th><th>выпускник</th><th>тип</th><th>поле</th><th>было → стало</th></tr>
+    {% for c in rows %}
+    <tr>
+      <td class="muted">{{ c.captured_at[:19]|replace('T',' ') }}</td>
+      <td><a href="{{ url_for('alumni_detail', uid=c.uid) }}">{{ c.name }}</a></td>
+      <td><span class="pill {{ 'new' if c.change_type in ('created','added') else ('removed' if c.change_type=='removed' else 'changed') }}">{{ c.change_type }}</span></td>
+      <td style="max-width:260px; word-break:break-word;">{{ c.field }}</td>
+      <td style="max-width:380px; word-break:break-word;">
+        {% if c.old_value %}<span class="muted">{{ c.old_value }}</span> → {% endif %}{{ c.new_value or '' }}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">Пока нет изменений.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

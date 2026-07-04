@@ -28,13 +28,26 @@ def create_tables():
 @pytest.fixture(autouse=True)
 def clean_db():
     yield
-    from model import session_scope, Chat, User
+    from model import (session_scope, Chat, User, TgIdentity, AlumniPerson,
+                       AlumniProgram, AlumniProgramYear)
     with session_scope() as sess:
         sess.query(User).delete()
         sess.query(Chat).delete()
+        sess.query(TgIdentity).delete()
+        sess.query(AlumniPerson).delete()
+        sess.query(AlumniProgram).delete()
+        sess.query(AlumniProgramYear).delete()
 
 
 # --- Bot / context fixtures ---
+
+@pytest.fixture(autouse=True)
+def _bot_has_rights(monkeypatch):
+    """By default assume the bot has admin rights, so handler tests exercise the
+    actual logic. Rights-gate tests override this."""
+    import actions
+    monkeypatch.setattr(actions, "ensure_rights", AsyncMock(return_value=True))
+
 
 @pytest.fixture
 def mock_bot():
@@ -44,7 +57,8 @@ def mock_bot():
     member.status = "member"
     member.user = MagicMock()
     member.user.name = "Test User"
-    member.user.mention_markdown = MagicMock(return_value="[Test User](tg://user?id=42)")
+    member.user.full_name = "Test User"
+    member.user.id = 42
     bot.get_chat_member = AsyncMock(return_value=member)
     return bot
 
@@ -57,7 +71,8 @@ def admin_bot():
     member.status = "administrator"
     member.user = MagicMock()
     member.user.name = "Admin User"
-    member.user.mention_markdown = MagicMock(return_value="[Admin User](tg://user?id=100)")
+    member.user.full_name = "Admin User"
+    member.user.id = 100
     bot.get_chat_member = AsyncMock(return_value=member)
     return bot
 

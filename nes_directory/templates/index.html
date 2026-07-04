@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Дашборд — NES Alumni{% endblock %}
+{% block body %}
+<div class="cards">
+  <div class="stat"><div class="n">{{ stats.persons }}</div><div class="l">всего выпускников</div></div>
+  <div class="stat"><div class="n">{{ stats.active }}</div><div class="l">активных</div></div>
+  <div class="stat"><div class="n">{{ stats.removed }}</div><div class="l">скрытых / удалённых</div></div>
+  <div class="stat"><div class="n">{{ stats.changes }}</div><div class="l">записей в change_log</div></div>
+</div>
+
+<div class="panel">
+  <h2>Синхронизация базы</h2>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <form method="post" action="{{ url_for('run_kind', kind='new') }}">
+      <button class="btn green" id="btn-new">➕ Добавить новых</button>
+    </form>
+    <form method="post" action="{{ url_for('run_kind', kind='full') }}"
+          onsubmit="return confirm('Полный пересинк перекачает ВСЕ карточки (~2 часа). Продолжить?');">
+      <button class="btn" id="btn-full">🔄 Полный пересинк</button>
+    </form>
+    <span class="muted" id="run-hint">«Добавить новых» — быстро, только новые выпускники. «Полный пересинк» — ловит правки в профилях.</span>
+  </div>
+  <div style="margin-top:14px;">
+    <div><b>Статус:</b> <span id="st-state">—</span> <span id="st-phase" class="muted"></span></div>
+    <pre class="log" id="st-log">…</pre>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Расписание (cron)</h2>
+  <form method="post" action="{{ url_for('save_schedule') }}" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+    <label><input type="checkbox" name="enabled" {% if schedule.enabled %}checked{% endif %}> включить автозапуск</label>
+    <select name="kind">
+      <option value="new" {% if schedule.kind=='new' %}selected{% endif %}>Добавить новых</option>
+      <option value="full" {% if schedule.kind=='full' %}selected{% endif %}>Полный пересинк</option>
+    </select>
+    <input type="text" name="cron" value="{{ schedule.cron }}" size="16" placeholder="0 4 * * 1">
+    <button class="btn ghost">Сохранить</button>
+    <span class="muted">формат cron: мин час день мес день_недели. Пример «0 4 * * 1» — пн 04:00.
+      {% if schedule.enabled %}<b style="color:var(--accent2)">включено</b>{% else %}по умолчанию выключено{% endif %}
+      {% if schedule.get('cron_valid') == False %}<b style="color:var(--warn)"> — cron невалиден</b>{% endif %}
+      {% if schedule.last_run %}| последний авто-запуск: {{ schedule.last_run }}{% endif %}
+    </span>
+  </form>
+</div>
+
+{% if stats.crawls %}
+<div class="panel">
+  <h2>Последние запуски</h2>
+  <table>
+    <tr><th>тип</th><th>старт</th><th>финиш</th><th>всего</th><th>новых</th><th>изменено</th><th>скрыто</th></tr>
+    {% for c in stats.crawls %}
+    <tr><td>{{ c.kind }}</td><td>{{ c.started_at }}</td><td>{{ c.finished_at or '…' }}</td>
+        <td>{{ c.n_seen }}</td><td>{{ c.n_new }}</td><td>{{ c.n_changed }}</td><td>{{ c.n_removed }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<script>
+async function poll() {
+  try {
+    const r = await fetch("{{ url_for('status') }}");
+    const s = await r.json();
+    const running = s.running;
+    document.getElementById('st-state').textContent =
+      running ? '● выполняется ('+(s.kind||'')+')' : (s.state||'idle');
+    document.getElementById('st-phase').textContent =
+      running && s.phase ? 'фаза: '+s.phase : (s.result ? JSON.stringify(s.result) : '');
+    document.getElementById('st-log').textContent = s.log_tail || '(нет активного лога)';
+    document.getElementById('st-log').scrollTop = 1e9;
+    document.getElementById('btn-new').disabled = running;
+    document.getElementById('btn-full').disabled = running;
+  } catch(e) {}
+}
+poll(); setInterval(poll, 2500);
+</script>
+{% endblock %}

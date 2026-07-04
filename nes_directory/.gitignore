@@ -1,0 +1,13 @@
+creds.env
+creds.json
+*.env
+auth_cookies.json
+out/
+raw_html/
+__pycache__/
+*.pyc
+.venv/
+members.csv
+members_enriched.csv
+pgdata/
+botdata/
