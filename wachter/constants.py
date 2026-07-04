@@ -23,35 +23,64 @@ help_message = '''Привет. Для начала работы добавь м
 В шаблонах сообщений доступны плейсхолдеры:
 %USER_MENTION% — упоминание пользователя
 %TIMEOUT% — таймаут кика в минутах
+%MINUTES% — в сообщении-напоминании: минут до кика
 '''
 
-get_settings_message = """
+get_settings_message = """⏱ ТАЙМИНГИ
 Таймаут кика: {kick_timeout} мин.
 Напоминание за: {notify_delta} мин. до кика
----
-Сообщение для нового участника чата: {on_new_chat_member_message}
----
-Сообщение при перезаходе в чат: {on_known_new_chat_member_message}
----
-Сообщение после успешного представления: {on_introduce_message}
----
-Сообщение предупреждения: {notify_message}
----
-Regex фильтр: ```{regex_filter}```
----
-Сообщение после кика: {on_kick_message}
----
-Сообщение при выходе из чата: {on_left_chat_member_message}
----
-Напоминание написать #whois: {on_whois_reminder_message}
----
-Сообщение при бане (regex): {on_filtered_message}
----
-Мин. длина #whois: {min_whois_length} символов
----
 Длительность бана: {ban_duration} мин. (0 = навсегда)
-–––
+Мин. длина #whois: {min_whois_length} символов
+
+━━━━━━━━━━━━━
+💬 ТЕКСТЫ
+
+Приветствие-знакомство:
+{on_whois_welcome_message}
+———
+Приветствие выпускника:
+{on_alumni_welcome_message}
+———
+Запрос e-mail:
+{on_email_prompt_message}
+———
+Анкета выпускника:
+{on_whois_name_message}
+———
+Анкета студента:
+{on_student_prompt_message}
+———
+Анкета друга РЭШ:
+{on_friend_prompt_message}
+———
+Анкета сотрудника РЭШ:
+{on_employee_prompt_message}
+———
+После знакомства:
+{on_introduce_message}
+———
+При перезаходе:
+{on_known_new_chat_member_message}
+———
+Напоминание написать #whois:
+{on_whois_reminder_message}
+———
+Предупреждение перед киком:
+{notify_message}
+———
+После кика:
+{on_kick_message}
+———
+При выходе из чата:
+{on_left_chat_member_message}
+
+━━━━━━━━━━━━━
+🛡 АНТИСПАМ
+Regex фильтр: {regex_filter}
 Кикать по regex только новых: {filter_only_new_users}
+———
+Сообщение при бане:
+{on_filtered_message}
 """
 
 
@@ -63,7 +92,7 @@ on_alumni_welcome_message = 'Добро пожаловать в Мишпуху 2
 
 # Тёплое приветствие в начале кнопочного whois (для ненайденных). %USER_MENTION%.
 whois_welcome_message = (
-    'Привет, %USER_MENTION%.\n'
+    'Привет, %USER\\_MENTION%.\n'
     'Рады видеть тебя в Мишпухе 2.0 🤍\n\n'
     'Это чат студентов, выпускников, сотрудников и друзей РЭШ.\n'
     'Давайте познакомимся — выберите, кто вы:'
@@ -77,9 +106,26 @@ on_email_prompt_message = (
     'продолжим вручную.'
 )
 whois_prompt_message = 'Давайте познакомимся. Кто вы?'
+# Анкета выпускника (ручной ввод, если не нашли по нику/почте).
 whois_ask_name_message = (
     'Напишите, пожалуйста, ваши Фамилию и Имя, а также пару слов о себе: '
     'где вы сейчас живёте и работаете, чем занимаетесь и в чём ваша экспертиза.'
+)
+# Анкета студента — акцент на до-РЭШ и жизни вне учёбы.
+on_student_prompt_message = (
+    'Напишите, пожалуйста, ваши Фамилию и Имя и пару слов о себе: '
+    'что окончили или чем занимались до РЭШ, где сейчас живёте и '
+    'чем увлекаетесь во внеучебное время.'
+)
+# Анкета друга РЭШ — попросить явно указать связь с РЭШ.
+on_friend_prompt_message = (
+    'Напишите, пожалуйста, ваши Фамилию и Имя и пару слов о себе: '
+    'что связывает вас с РЭШ и чем вы занимаетесь.'
+)
+# Анкета сотрудника РЭШ — попросить указать роль в РЭШ.
+on_employee_prompt_message = (
+    'Напишите, пожалуйста, ваши Фамилию и Имя и пару слов о себе: '
+    'чем вы занимаетесь в РЭШ.'
 )
 
 
@@ -107,5 +153,13 @@ class Actions(IntEnum):
     set_on_email_prompt_message = auto()
     set_on_whois_welcome_message = auto()
     set_on_whois_name_message = auto()
+    # подменю настроек (двухуровневое меню)
+    open_texts = auto()
+    open_kick = auto()
+    open_filter = auto()
+    # категорийные анкеты кнопочного whois
+    set_on_student_prompt_message = auto()
+    set_on_friend_prompt_message = auto()
+    set_on_employee_prompt_message = auto()
 
 

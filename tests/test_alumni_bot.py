@@ -5,7 +5,41 @@ from unittest.mock import MagicMock, AsyncMock
 from model import session_scope, AlumniPerson, TgIdentity, User, Chat
 import alumni as al
 import actions
-from helpers import make_update
+from helpers import make_update, telegram_markdown_ok
+
+
+def test_markdown_validator_catches_unclosed_entities():
+    # доверяем валидатору только если он ловит реальные поломки Telegram
+    assert telegram_markdown_ok("Привет, [Ivan](tg://user?id=1)!")
+    assert telegram_markdown_ok(r"эскейп \_ не считается сущностью")
+    assert not telegram_markdown_ok("сырой %USER_MENTION% ломает разбор")  # нечётный _
+    assert not telegram_markdown_ok("незакрытый *bold")
+    assert not telegram_markdown_ok("битая [ссылка](url")
+
+
+async def test_join_underscore_username_sends_valid_markdown(mock_context):
+    """Регрессия: не-выпускник с `_` в нике (first_second_name) заходит — бот
+    ДОЛЖЕН ответить, и интро-приветствие должно быть валидным Markdown с уже
+    подставленным упоминанием (раньше сырой %USER_MENTION% ронял отправку)."""
+    chat_id, uid = -100, 5609041753
+    with session_scope() as s:
+        s.add(Chat(id=chat_id))          # дефолтные шаблоны, kick_timeout=30
+
+    update = make_update(chat_id=chat_id)
+    member = MagicMock()
+    member.id, member.is_bot, member.username = uid, False, "first_second_name"
+    update.message.new_chat_members = [member]
+    update.effective_chat.id = chat_id
+
+    await actions.on_new_chat_member(update, mock_context)
+
+    update.message.reply_text.assert_called_once()          # бот отреагировал
+    text = update.message.reply_text.call_args[0][0]
+    kwargs = update.message.reply_text.call_args[1]
+    assert kwargs.get("parse_mode") is not None             # шлётся с Markdown
+    assert telegram_markdown_ok(text), f"битый Markdown: {text!r}"
+    assert "%USER_MENTION%" not in text                     # плейсхолдер заменён
+    assert "tg://user" in text                              # упоминание вставлено
 
 
 def _seed_alum(uid="10", username="very_big_t", classes=None):
@@ -98,6 +132,19 @@ async def test_rejoin_shows_recap_not_snova(mock_context):
     await actions.on_new_chat_member(update, mock_context)
     sent = update.message.reply_text.call_args[0][0]
     assert "Tishin A" in sent and "#whois MAE'2019" in sent   # recap, not "Снова"
+
+
+async def test_notify_reminder_fills_minutes_left(mock_context):
+    # напоминание застрявшему в whois: %MINUTES% -> минут до кика (= notify_delta)
+    with session_scope() as s:
+        s.add(Chat(id=-100, notify_delta=7,
+                   notify_message=r"%USER\_MENTION%, осталось %MINUTES% мин."))
+    job = MagicMock()
+    job.data = {"chat_id": -100, "user_id": 42}
+    mock_context.job = job
+    await actions.on_notify_timeout(mock_context)
+    text = mock_context.bot.send_message.call_args.kwargs["text"]
+    assert "7 мин" in text and "%MINUTES%" not in text
 
 
 def test_apply_timeout():

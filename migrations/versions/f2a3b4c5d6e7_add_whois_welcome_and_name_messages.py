@@ -18,7 +18,7 @@ depends_on = None
 def upgrade():
     op.add_column('chats', sa.Column(
         'on_whois_welcome_message', sa.Text(), nullable=False,
-        server_default='Привет, %USER_MENTION%.\nРады видеть тебя в Мишпухе 2.0 🤍\n\n'
+        server_default='Привет, %USER\\_MENTION%.\nРады видеть тебя в Мишпухе 2.0 🤍\n\n'
                        'Это чат студентов, выпускников, сотрудников и друзей РЭШ.\n'
                        'Давайте познакомимся — выберите, кто вы (у вас есть %TIMEOUT%):'))
     op.add_column('chats', sa.Column(

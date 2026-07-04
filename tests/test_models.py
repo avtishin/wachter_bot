@@ -4,6 +4,24 @@
 """
 import pytest
 from model import Chat, User, session_scope
+from helpers import telegram_markdown_ok
+
+
+# Плейсхолдеры → правдоподобные подстановки (в форме, как их вставляет бот).
+# %USER\_MENTION% превращается в markdown-ссылку; остальные — в простой текст.
+_SUBST = {
+    r"%USER\_MENTION%": "[Ivan Petrov](tg://user?id=1)",
+    r"%MIN\_LENGTH%": "20",
+    "%TIMEOUT%": "30 мин.",
+    "%NAME%": "Ivan Petrov",
+    "%CLASS%": "MAE'2019",
+}
+
+
+def _render(template):
+    for ph, val in _SUBST.items():
+        template = template.replace(ph, val)
+    return template
 
 
 class TestChatDefaults:
@@ -22,6 +40,24 @@ class TestChatDefaults:
     def test_default_welcome_message_has_timeout_placeholder(self):
         col = Chat.__table__.columns["on_new_chat_member_message"]
         assert "%TIMEOUT%" in col.default.arg
+
+    def test_whois_welcome_mention_is_markdown_escaped(self):
+        # intro уходит с parse_mode=MARKDOWN; сырой %USER_MENTION% ломает разбор
+        # (незакрытый _), поэтому дефолт хранит экранированную форму %USER\_MENTION%.
+        arg = Chat.__table__.columns["on_whois_welcome_message"].default.arg
+        assert "%USER\\_MENTION%" in arg
+        assert "%USER_MENTION%" not in arg.replace("%USER\\_MENTION%", "")
+
+    @pytest.mark.parametrize("col", [
+        c.name for c in Chat.__table__.columns
+        if isinstance(getattr(c.default, "arg", None), str)
+    ])
+    def test_message_template_default_is_valid_markdown(self, col):
+        """Каждый дефолтный шаблон после подстановки плейсхолдеров должен быть
+        валидным Telegram Markdown. Ловит незамещённый/сырой %USER_MENTION% и
+        любой незакрытый _ * ` — то, что раньше падало только в проде."""
+        rendered = _render(Chat.__table__.columns[col].default.arg)
+        assert telegram_markdown_ok(rendered), f"{col}: битый Markdown → {rendered!r}"
 
     def test_repr(self):
         assert "-100" in repr(Chat(id=-100))

@@ -7,6 +7,7 @@ from time import monotonic
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
+from telegram.helpers import escape_markdown
 
 from model import Chat, User, TgIdentity, AlumniPerson, session_scope
 from constants import Actions
@@ -107,6 +108,19 @@ async def on_my_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if chat is None or chat.id >= 0:
         return
+    # Бот добавлен/оставлен в чате → заводим строку конфига, чтобы админ мог
+    # настроить бота через /start сразу, даже не написав ни одного #whois.
+    cmu = update.my_chat_member
+    status = cmu.new_chat_member.status if cmu and cmu.new_chat_member else None
+    if status in ("member", "administrator", "restricted", "creator"):
+        with session_scope() as sess:
+            row = sess.query(Chat).filter(Chat.id == chat.id).first()
+            if row is None:
+                row = Chat(id=chat.id)
+                sess.add(row)
+            title = getattr(chat, "title", None)
+            if isinstance(title, str) and title:
+                row.title = title
     if await ensure_rights(context, chat.id):
         _rights_warned.discard(chat.id)
 
@@ -123,11 +137,27 @@ async def authorize_user(bot, chat_id, user_id):
         return False
 
 
+def escape_md_v1(text):
+    """Делает произвольный текст безопасным для legacy Markdown (v1).
+
+    v1 не умеет экранировать ``]`` (в отличие от ``_ * [ ``` `` `` ```), поэтому
+    ``]`` удаляем — тогда паттерн ссылки ``](`` собрать нельзя, а одиночные
+    ``( )`` безвредны. Остальное экранирует escape_markdown. Закрывает инъекцию
+    markdown/фишинг-ссылок через подконтрольный пользователю текст (имя, whois)."""
+    return escape_markdown((text or "").replace("]", ""), version=1)
+
+
+def safe_mention(user):
+    """Кликабельное упоминание с экранированным именем (без markdown-инъекции)."""
+    name = user.full_name or user.name or str(user.id)
+    return f"[{escape_md_v1(name)}](tg://user?id={user.id})"
+
+
 async def mention_markdown(bot, chat_id, user_id, message):
     try:
         member = await bot.get_chat_member(chat_id, user_id)
         user = member.user
-        user_mention_markdown = user.mention_markdown() if user.name else ""
+        user_mention_markdown = safe_mention(user) if user.name else ""
     except Exception:
         user_mention_markdown = ""
     return message.replace("%USER\\_MENTION%", user_mention_markdown)
@@ -198,8 +228,10 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             chat = Chat(id=chat_id)
             sess.add(chat)
             sess.flush()
+        _title = getattr(update.effective_chat, "title", None)
+        if isinstance(_title, str) and _title:   # держим название свежим для дашборда
+            chat.title = _title
 
-        message_text = chat.on_new_chat_member_message
         known_message = chat.on_known_new_chat_member_message
         timeout = chat.kick_timeout
         notify_delta = chat.notify_delta
@@ -213,7 +245,14 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             or constants.on_email_prompt_message,
             "name_prompt": getattr(chat, "on_whois_name_message", None)
             or constants.whois_ask_name_message,
+            "student_prompt": getattr(chat, "on_student_prompt_message", None)
+            or constants.on_student_prompt_message,
+            "friend_prompt": getattr(chat, "on_friend_prompt_message", None)
+            or constants.on_friend_prompt_message,
+            "employee_prompt": getattr(chat, "on_employee_prompt_message", None)
+            or constants.on_employee_prompt_message,
             "introduce": chat.on_introduce_message,
+            "min_whois_length": chat.min_whois_length,
         }
 
     for member in update.message.new_chat_members:
@@ -263,9 +302,6 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(welcome)
             continue
 
-        if message_text == constants.skip_on_new_chat_member_message:
-            continue
-
         # структурированный whois на кнопках: тёплое приветствие + категории
         welcome_text = apply_timeout(whois_templates["welcome"], timeout)
         welcome_text = await mention_markdown(context.bot, chat_id, user_id, welcome_text)
@@ -298,6 +334,8 @@ async def on_notify_timeout(context: ContextTypes.DEFAULT_TYPE):
         msg_markdown = await mention_markdown(
             context.bot, data["chat_id"], data["user_id"], chat.notify_message
         )
+    # %MINUTES% — сколько минут осталось до кика (напоминание шлётся за notify_delta до него)
+    msg_markdown = msg_markdown.replace("%MINUTES%", str(notify_delta))
     message = await context.bot.send_message(
         data["chat_id"], text=msg_markdown, parse_mode=ParseMode.MARKDOWN
     )
@@ -452,20 +490,19 @@ async def on_edited_message(update, context: ContextTypes.DEFAULT_TYPE):
         await _process_whois(context.bot, context.job_queue, message, chat_id, message.from_user.id)
 
 
-async def on_start_command(update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if update.effective_chat.id < 0:
-        return
-
+async def admin_chats_keyboard(bot, user_id):
+    """Кнопки чатов, которыми бот управляет (строки в `chats`) и где user —
+    админ/создатель. Источник — таблица `chats`, а не `users`: настраивать бота
+    может любой Telegram-админ чата, даже если он сам не писал #whois. Покинутые
+    чаты отсеиваются сами — там get_chat_member бросит исключение."""
     with session_scope() as sess:
-        user_chat_ids = [u.chat_id for u in sess.query(User).filter(User.user_id == user_id)]
+        chat_ids = [row[0] for row in sess.query(Chat.id).all()]
 
     keyboard = []
-    for chat_id in user_chat_ids:
+    for chat_id in chat_ids:
         try:
-            if await authorize_user(context.bot, chat_id, user_id):
-                chat = await context.bot.get_chat(chat_id)
+            if await authorize_user(bot, chat_id, user_id):
+                chat = await bot.get_chat(chat_id)
                 title = chat.title or str(chat_id)
                 keyboard.append([InlineKeyboardButton(
                     title,
@@ -473,6 +510,16 @@ async def on_start_command(update, context: ContextTypes.DEFAULT_TYPE):
                 )])
         except Exception:
             pass
+    return keyboard
+
+
+async def on_start_command(update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if update.effective_chat.id < 0:
+        return
+
+    keyboard = await admin_chats_keyboard(context.bot, user_id)
 
     if not keyboard:
         await update.message.reply_text("У вас нет доступных чатов.")
@@ -482,6 +529,107 @@ async def on_start_command(update, context: ContextTypes.DEFAULT_TYPE):
         constants.on_start_command,
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
+
+# Редактируемое действие → колонка Chat (для показа текущего значения и записи).
+ACTION_FIELD = {
+    Actions.set_kick_timeout: "kick_timeout",
+    Actions.set_notify_delta: "notify_delta",
+    Actions.set_ban_duration: "ban_duration",
+    Actions.set_min_whois_length: "min_whois_length",
+    Actions.set_on_whois_welcome_message: "on_whois_welcome_message",
+    Actions.set_on_alumni_welcome_message: "on_alumni_welcome_message",
+    Actions.set_on_email_prompt_message: "on_email_prompt_message",
+    Actions.set_on_whois_name_message: "on_whois_name_message",
+    Actions.set_on_student_prompt_message: "on_student_prompt_message",
+    Actions.set_on_friend_prompt_message: "on_friend_prompt_message",
+    Actions.set_on_employee_prompt_message: "on_employee_prompt_message",
+    Actions.set_on_successful_introducion_response: "on_introduce_message",
+    Actions.set_on_known_new_chat_member_message_response: "on_known_new_chat_member_message",
+    Actions.set_on_whois_reminder_message: "on_whois_reminder_message",
+    Actions.set_notify_message: "notify_message",
+    Actions.set_on_kick_message: "on_kick_message",
+    Actions.set_on_left_chat_member_message: "on_left_chat_member_message",
+    Actions.set_regex_filter: "regex_filter",
+    Actions.set_filter_only_new_users: "filter_only_new_users",
+    Actions.set_on_filtered_message: "on_filtered_message",
+}
+
+
+def split_message(text, limit=3900):
+    """Режет длинный текст на части ≤ limit по границам строк (у Telegram лимит
+    сообщения 4096). Всегда возвращает минимум одну часть."""
+    chunks, cur = [], ""
+    for line in text.split("\n"):
+        piece = (line + "\n")
+        if cur and len(cur) + len(piece) > limit:
+            chunks.append(cur.rstrip("\n"))
+            cur = ""
+        cur += piece
+    chunks.append(cur.rstrip("\n"))
+    return chunks
+
+
+def _unescape_md(s):
+    """Убирает markdown-экранирование для показа плейсхолдеров админу:
+    \\_ -> _, \\# -> #, \\* -> *, \\[ -> [."""
+    for a, b in (("\\_", "_"), ("\\#", "#"), ("\\*", "*"), ("\\[", "[")):
+        s = s.replace(a, b)
+    return s
+
+
+def _btn(label, chat_id, action):
+    return [InlineKeyboardButton(
+        label, callback_data=json.dumps({"chat_id": chat_id, "action": action}))]
+
+
+def _chat_menu_keyboard(chat_id):
+    return InlineKeyboardMarkup([
+        _btn("💬 Тексты сообщений", chat_id, Actions.open_texts),
+        _btn("⏱ Кик и тайминги", chat_id, Actions.open_kick),
+        _btn("🛡 Антиспам-фильтр", chat_id, Actions.open_filter),
+        _btn("📋 Текущие настройки", chat_id, Actions.get_current_settings),
+        [InlineKeyboardButton("◀ К списку чатов", callback_data=json.dumps(
+            {"action": Actions.start_select_chat}))],
+    ])
+
+
+def _texts_keyboard(chat_id):
+    return InlineKeyboardMarkup([
+        _btn("Приветствие-знакомство (whois)", chat_id, Actions.set_on_whois_welcome_message),
+        _btn("Приветствие выпускника", chat_id, Actions.set_on_alumni_welcome_message),
+        _btn("Запрос e-mail (выпускник)", chat_id, Actions.set_on_email_prompt_message),
+        _btn("Анкета: выпускник", chat_id, Actions.set_on_whois_name_message),
+        _btn("Анкета: студент", chat_id, Actions.set_on_student_prompt_message),
+        _btn("Анкета: друг РЭШ", chat_id, Actions.set_on_friend_prompt_message),
+        _btn("Анкета: сотрудник РЭШ", chat_id, Actions.set_on_employee_prompt_message),
+        _btn("Сообщение после знакомства", chat_id, Actions.set_on_successful_introducion_response),
+        _btn("Сообщение при перезаходе", chat_id, Actions.set_on_known_new_chat_member_message_response),
+        _btn("Напоминание написать #whois", chat_id, Actions.set_on_whois_reminder_message),
+        _btn("Предупреждение перед киком", chat_id, Actions.set_notify_message),
+        _btn("Сообщение после кика", chat_id, Actions.set_on_kick_message),
+        _btn("Сообщение при выходе из чата", chat_id, Actions.set_on_left_chat_member_message),
+        _btn("◀ Назад", chat_id, Actions.select_chat),
+    ])
+
+
+def _kick_keyboard(chat_id):
+    return InlineKeyboardMarkup([
+        _btn("Таймаут кика", chat_id, Actions.set_kick_timeout),
+        _btn("Напоминание (мин. до кика)", chat_id, Actions.set_notify_delta),
+        _btn("Длительность бана (мин.)", chat_id, Actions.set_ban_duration),
+        _btn("Мин. длина #whois", chat_id, Actions.set_min_whois_length),
+        _btn("◀ Назад", chat_id, Actions.select_chat),
+    ])
+
+
+def _filter_keyboard(chat_id):
+    return InlineKeyboardMarkup([
+        _btn("Regex для фильтра сообщений", chat_id, Actions.set_regex_filter),
+        _btn("Фильтрация только для новых", chat_id, Actions.set_filter_only_new_users),
+        _btn("Сообщение при бане (regex)", chat_id, Actions.set_on_filtered_message),
+        _btn("◀ Назад", chat_id, Actions.select_chat),
+    ])
 
 
 async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
@@ -504,21 +652,7 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if data["action"] == Actions.start_select_chat:
-        with session_scope() as sess:
-            user_chat_ids = [u.chat_id for u in sess.query(User).filter(User.user_id == user_id)]
-
-        keyboard = []
-        for chat_id in user_chat_ids:
-            try:
-                if await authorize_user(context.bot, chat_id, user_id):
-                    chat = await context.bot.get_chat(chat_id)
-                    title = chat.title or str(chat_id)
-                    keyboard.append([InlineKeyboardButton(
-                        title,
-                        callback_data=json.dumps({"chat_id": chat_id, "action": Actions.select_chat}),
-                    )])
-            except Exception:
-                pass
+        keyboard = await admin_chats_keyboard(context.bot, user_id)
 
         if not keyboard:
             await query.edit_message_text("У вас нет доступных чатов.")
@@ -527,70 +661,26 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data["action"] == Actions.select_chat:
-        selected_chat_id = data["chat_id"]
-        keyboard = [
-            [InlineKeyboardButton("Изменить таймаут кика", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_kick_timeout}))],
-            [InlineKeyboardButton("Изменить время напоминания (мин. до кика)", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_notify_delta}))],
-            [InlineKeyboardButton("Изменить сообщение при входе в чат", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_new_chat_member_message_response}))],
-            [InlineKeyboardButton("Изменить сообщение при перезаходе в чат", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_known_new_chat_member_message_response}))],
-            [InlineKeyboardButton("Изменить сообщение после успешного представления", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_successful_introducion_response}))],
-            [InlineKeyboardButton("Изменить приветствие-знакомство (whois)", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_whois_welcome_message}))],
-            [InlineKeyboardButton("Изменить приветствие выпускника", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_alumni_welcome_message}))],
-            [InlineKeyboardButton("Изменить запрос e-mail (выпускник)", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_email_prompt_message}))],
-            [InlineKeyboardButton("Изменить запрос имени (whois)", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_whois_name_message}))],
-            [InlineKeyboardButton("Изменить сообщение напоминания", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_notify_message}))],
-            [InlineKeyboardButton("Изменить сообщение после кика", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_kick_message}))],
-            [InlineKeyboardButton("Изменить сообщение при выходе из чата", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_left_chat_member_message}))],
-            [InlineKeyboardButton("Изменить напоминание написать #whois", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_whois_reminder_message}))],
-            [InlineKeyboardButton("Изменить сообщение при бане (regex)", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_on_filtered_message}))],
-            [InlineKeyboardButton("Изменить мин. длину #whois", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_min_whois_length}))],
-            [InlineKeyboardButton("Изменить длительность бана (мин.)", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_ban_duration}))],
-            [InlineKeyboardButton("Изменить regex для фильтра сообщений", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_regex_filter}))],
-            [InlineKeyboardButton("Изменить фильтрацию только для новых пользователей", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.set_filter_only_new_users}))],
-            [InlineKeyboardButton("Получить текущие настройки", callback_data=json.dumps(
-                {"chat_id": selected_chat_id, "action": Actions.get_current_settings}))],
-        ]
-        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_reply_markup(reply_markup=_chat_menu_keyboard(data["chat_id"]))
 
-    elif data["action"] in [
-        Actions.set_on_new_chat_member_message_response,
-        Actions.set_kick_timeout,
-        Actions.set_notify_message,
-        Actions.set_notify_delta,
-        Actions.set_on_known_new_chat_member_message_response,
-        Actions.set_on_successful_introducion_response,
-        Actions.set_on_kick_message,
-        Actions.set_on_left_chat_member_message,
-        Actions.set_on_whois_reminder_message,
-        Actions.set_on_filtered_message,
-        Actions.set_min_whois_length,
-        Actions.set_ban_duration,
-        Actions.set_regex_filter,
-        Actions.set_filter_only_new_users,
-        Actions.set_on_alumni_welcome_message,
-        Actions.set_on_email_prompt_message,
-        Actions.set_on_whois_welcome_message,
-        Actions.set_on_whois_name_message,
-    ]:
-        await query.edit_message_text(text="Отправьте новое значение")
+    elif data["action"] == Actions.open_texts:
+        await query.edit_message_reply_markup(reply_markup=_texts_keyboard(data["chat_id"]))
+
+    elif data["action"] == Actions.open_kick:
+        await query.edit_message_reply_markup(reply_markup=_kick_keyboard(data["chat_id"]))
+
+    elif data["action"] == Actions.open_filter:
+        await query.edit_message_reply_markup(reply_markup=_filter_keyboard(data["chat_id"]))
+
+    elif data["action"] in ACTION_FIELD:
+        # показываем текущее значение перед вводом нового
+        field = ACTION_FIELD[data["action"]]
+        with session_scope() as sess:
+            chat = sess.query(Chat).filter(Chat.id == data["chat_id"]).first()
+            current = getattr(chat, field, None) if chat else None
+        current_str = "—" if current in (None, "") else str(current)
+        await query.edit_message_text(
+            f"Текущее значение:\n\n{current_str}\n\nОтправьте новое значение:")
         context.user_data["chat_id"] = data["chat_id"]
         context.user_data["action"] = data["action"]
 
@@ -607,13 +697,22 @@ async def on_button_click(update, context: ContextTypes.DEFAULT_TYPE):
                 chat = Chat(id=data["chat_id"])
                 sess.add(chat)
                 sess.flush()
-            await query.edit_message_text(
-                text=constants.get_settings_message.format(**{
-                    k: v for k, v in chat.__dict__.items() if not k.startswith("_")
-                }),
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-            )
+            # plain text (без parse_mode): устойчиво к любым правкам админов и
+            # показываем плейсхолдеры без markdown-экранирования (\_ -> _)
+            values = {k: (_unescape_md(v) if isinstance(v, str) else v)
+                      for k, v in chat.__dict__.items() if not k.startswith("_")}
+            text = constants.get_settings_message.format(**values)
+        # шлём несколькими сообщениями — общий текст может превысить лимит 4096
+        chunks = split_message(text)
+        await query.edit_message_text(
+            text=chunks[0],
+            reply_markup=None if len(chunks) > 1 else InlineKeyboardMarkup(keyboard))
+        for extra in chunks[1:-1]:
+            await context.bot.send_message(query.message.chat_id, extra)
+        if len(chunks) > 1:
+            await context.bot.send_message(
+                query.message.chat_id, chunks[-1],
+                reply_markup=InlineKeyboardMarkup(keyboard))
         context.user_data["action"] = None
 
 
@@ -793,55 +892,16 @@ async def on_message(update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard),
             )
 
-        elif action in [
-            Actions.set_on_new_chat_member_message_response,
-            Actions.set_notify_message,
-            Actions.set_on_known_new_chat_member_message_response,
-            Actions.set_on_successful_introducion_response,
-            Actions.set_on_kick_message,
-            Actions.set_on_left_chat_member_message,
-            Actions.set_on_whois_reminder_message,
-            Actions.set_on_filtered_message,
-            Actions.set_regex_filter,
-            Actions.set_filter_only_new_users,
-            Actions.set_on_alumni_welcome_message,
-            Actions.set_on_email_prompt_message,
-            Actions.set_on_whois_welcome_message,
-            Actions.set_on_whois_name_message,
-        ]:
+        elif action in ACTION_FIELD:
             value = message.text_markdown
+            field = ACTION_FIELD[action]
             with session_scope() as sess:
-                if action == Actions.set_on_new_chat_member_message_response:
-                    chat = Chat(id=chat_id, on_new_chat_member_message=value)
-                elif action == Actions.set_on_known_new_chat_member_message_response:
-                    chat = Chat(id=chat_id, on_known_new_chat_member_message=value)
-                elif action == Actions.set_on_successful_introducion_response:
-                    chat = Chat(id=chat_id, on_introduce_message=value)
-                elif action == Actions.set_notify_message:
-                    chat = Chat(id=chat_id, notify_message=value)
-                elif action == Actions.set_on_kick_message:
-                    chat = Chat(id=chat_id, on_kick_message=value)
-                elif action == Actions.set_on_left_chat_member_message:
-                    chat = Chat(id=chat_id, on_left_chat_member_message=value)
-                elif action == Actions.set_on_whois_reminder_message:
-                    chat = Chat(id=chat_id, on_whois_reminder_message=value)
-                elif action == Actions.set_on_filtered_message:
-                    chat = Chat(id=chat_id, on_filtered_message=value)
-                elif action == Actions.set_filter_only_new_users:
+                if action == Actions.set_filter_only_new_users:
                     chat = Chat(id=chat_id, filter_only_new_users=value.lower() in ["true", "1"])
-                elif action == Actions.set_on_alumni_welcome_message:
-                    chat = Chat(id=chat_id, on_alumni_welcome_message=value)
-                elif action == Actions.set_on_email_prompt_message:
-                    chat = Chat(id=chat_id, on_email_prompt_message=value)
-                elif action == Actions.set_on_whois_welcome_message:
-                    chat = Chat(id=chat_id, on_whois_welcome_message=value)
-                elif action == Actions.set_on_whois_name_message:
-                    chat = Chat(id=chat_id, on_whois_name_message=value)
                 elif action == Actions.set_regex_filter:
-                    if value == "%TURN_OFF%":
-                        chat = Chat(id=chat_id, regex_filter=None)
-                    else:
-                        chat = Chat(id=chat_id, regex_filter=message.text)
+                    chat = Chat(id=chat_id, regex_filter=None if value == "%TURN_OFF%" else message.text)
+                else:
+                    chat = Chat(id=chat_id, **{field: value})
                 sess.merge(chat)
 
             context.user_data["action"] = None
@@ -914,15 +974,36 @@ async def on_whois_command(update, context: ContextTypes.DEFAULT_TYPE):
         whois_text = user.whois
 
     mention = await mention_markdown(context.bot, chat_id, user_id, "%USER\\_MENTION%")
+    # whois_text — свободный текст пользователя: экранируем для markdown
     await message.reply_text(
-        f"{mention}\nwhois: {whois_text}",
+        f"{mention}\nwhois: {escape_md_v1(whois_text)}",
         parse_mode=ParseMode.MARKDOWN,
     )
 
 
-async def on_left_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
-    member = update.message.left_chat_member
+_PRESENT = ("member", "administrator", "creator", "restricted")
+
+
+async def on_chat_member_update(update, context: ContextTypes.DEFAULT_TYPE):
+    """Выход участника через chat_member-апдейт (работает и в group, и в
+    supergroup, в отличие от service-сообщения left_chat_member, которого в
+    супергруппах при добровольном выходе просто нет).
+
+    Постим «покинул чат», когда участник был в чате, а стал left/kicked. Кик
+    самим ботом пропускаем — про него уже есть on_kick_message."""
+    cmu = update.chat_member
+    if cmu is None:
+        return
+    old, new = cmu.old_chat_member, cmu.new_chat_member
+    was_in = old.status in _PRESENT
+    now_gone = new.status in ("left", "kicked")
+    if not (was_in and now_gone):
+        return
+    member = new.user
     if member.is_bot:
+        return
+    # бот сам кикнул (таймер/regex) — не дублируем, есть отдельное сообщение
+    if cmu.from_user is not None and cmu.from_user.id == context.bot.id:
         return
     chat_id = update.effective_chat.id
     with session_scope() as sess:
@@ -932,7 +1013,6 @@ async def on_left_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
         template = chat.on_left_chat_member_message
     if template.lower() in ["false", "0"]:
         return
-    # Используем объект участника напрямую — get_chat_member ненадёжен после выхода
-    user_mention = member.mention_markdown() if member.name else str(member.id)
+    user_mention = safe_mention(member) if member.name else str(member.id)
     msg = template.replace("%USER\\_MENTION%", user_mention)
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    await context.bot.send_message(chat_id, msg, parse_mode=ParseMode.MARKDOWN)

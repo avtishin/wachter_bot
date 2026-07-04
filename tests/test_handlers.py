@@ -497,27 +497,6 @@ class TestNewChatMember:
 
         update.message.reply_text.assert_not_called()
 
-    async def test_skip_message_sends_nothing(self, mock_context):
-        from actions import on_new_chat_member
-        import constants as c
-        update = self._make_new_member_update()
-
-        mock_chat = MagicMock()
-        mock_chat.on_new_chat_member_message = c.skip_on_new_chat_member_message
-        mock_chat.on_known_new_chat_member_message = "Снова."
-        mock_chat.kick_timeout = 0
-        mock_sess = MagicMock()
-        mock_sess.get.return_value = None
-        mock_sess.query.return_value.filter.return_value.first.side_effect = [
-            mock_chat, None
-        ]
-
-        with patch("actions.session_scope") as mock_scope:
-            mock_scope.return_value.__enter__.return_value = mock_sess
-            await on_new_chat_member(update, mock_context)
-
-        update.message.reply_text.assert_not_called()
-
     async def test_kick_timeout_schedules_jobs(self, mock_context):
         from actions import on_new_chat_member
         update = self._make_new_member_update()
