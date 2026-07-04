@@ -118,17 +118,19 @@ def run(kind, log_path=None):
 
 
 def nes_db_counts():
-    import sqlite3
-    con = sqlite3.connect(nes_db.DB)
+    from sqlalchemy.orm import sessionmaker
+    from alumni_models import get_engine, AlumniPerson, AlumniCrawl
+    sess = sessionmaker(bind=get_engine())()
     try:
-        total = con.execute("SELECT COUNT(*) FROM person").fetchone()[0]
-        active = con.execute("SELECT COUNT(*) FROM person WHERE removed_at IS NULL").fetchone()[0]
-        last = con.execute("SELECT kind,n_seen,n_new,n_changed,n_removed FROM crawl "
-                           "ORDER BY id DESC LIMIT 1").fetchone()
+        total = sess.query(AlumniPerson).count()
+        active = sess.query(AlumniPerson).filter(AlumniPerson.removed_at.is_(None)).count()
+        last = sess.query(AlumniCrawl).order_by(AlumniCrawl.id.desc()).first()
         return {"persons": total, "active": active,
-                "last_crawl": dict(zip(["kind", "seen", "new", "changed", "removed"], last)) if last else None}
+                "last_crawl": {"kind": last.kind, "seen": last.n_seen, "new": last.n_new,
+                               "changed": last.n_changed, "removed": last.n_removed}
+                if last else None}
     finally:
-        con.close()
+        sess.close()
 
 
 if __name__ == "__main__":

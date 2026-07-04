@@ -91,6 +91,24 @@ def load_programs():
         return [r.title for r in s.query(AlumniProgram).order_by(AlumniProgram.title)]
 
 
+def like_escape(term):
+    """Экранирует LIKE-метасимволы, чтобы пользовательский ввод в поиске не
+    работал как шаблон (%/_). Использовать с ilike/like(..., escape='\\\\')."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def load_chats():
+    """Чаты, которыми управляет бот (id + название) — для селектора участников.
+    Таблица chats принадлежит боту; своя сессия, чтобы её отсутствие не роняло
+    страницу."""
+    try:
+        with am.session_scope() as s:
+            return [(r[0], r[1] or str(r[0])) for r in s.execute(
+                sa_text("SELECT id, title FROM chats ORDER BY title NULLS LAST, id"))]
+    except Exception:
+        return []
+
+
 # --- run status / triggers -------------------------------------------------
 def tail(path, n=200):
     try:
@@ -228,13 +246,16 @@ def alumni():
         if query:
             # имя ищем на обоих языках (рус → транслит на латиницу базы);
             # город/страну — по сырому запросу в тексте карточки
-            conds = [AlumniPerson.name.ilike(f"%{query}%"),
-                     AlumniPerson.full.cast(am.Text).ilike(f"%{query}%")]
+            ql = like_escape(query)
+            conds = [AlumniPerson.name.ilike(f"%{ql}%", escape="\\"),
+                     AlumniPerson.full.cast(am.Text).ilike(f"%{ql}%", escape="\\")]
             if translit.has_cyrillic(query):
-                conds.append(AlumniPerson.name.ilike(f"%{translit.ru_to_lat(query)}%"))
+                conds.append(AlumniPerson.name.ilike(
+                    f"%{like_escape(translit.ru_to_lat(query))}%", escape="\\"))
             q = q.filter(or_(*conds))
         if prog:
-            q = q.filter(AlumniPerson.programs.cast(am.Text).ilike(f"%{prog}%"))
+            q = q.filter(AlumniPerson.programs.cast(am.Text).ilike(
+                f"%{like_escape(prog)}%", escape="\\"))
         if year.isdigit():
             # любой класс с этим годом (учитывает несколько программ)
             q = q.filter(AlumniPerson.classes.cast(am.Text).like(f"%'{year}%"))
@@ -295,22 +316,30 @@ def identities():
     prog = (request.args.get("program") or "").strip()
     year = (request.args.get("year") or "").strip()
     q = (request.args.get("q") or "").strip()
+    chat = (request.args.get("chat") or "").strip()
     page = max(1, int(request.args.get("page", 1)))
+    chats = load_chats()   # своя сессия — отсутствие таблицы не ломает страницу
     with am.session_scope() as s:
         query = s.query(TgIdentity)
         if cat:
             query = query.filter(TgIdentity.category == cat)
         if q:
-            like = f"%{q}%"
-            query = query.filter(or_(TgIdentity.username.ilike(like),
-                                     TgIdentity.declared_name.ilike(like)))
+            like = f"%{like_escape(q)}%"
+            query = query.filter(or_(TgIdentity.username.ilike(like, escape="\\"),
+                                     TgIdentity.declared_name.ilike(like, escape="\\")))
+        if chat:   # участники конкретного чата — по строкам users(chat_id, user_id)
+            cid = int(chat) if chat.lstrip("-").isdigit() else None
+            member_ids = [] if cid is None else [r[0] for r in s.execute(
+                sa_text("SELECT user_id FROM users WHERE chat_id = :cid"), {"cid": cid})]
+            query = query.filter(TgIdentity.user_id.in_(member_ids))
         # программа/год: у выпускника — по привязанной карточке (код класса),
         # у студента/ненайденного — по заявленным полям
         if prog or year.isdigit():
             if cat == "alumni":
                 query = query.join(AlumniPerson, TgIdentity.alumni_uid == AlumniPerson.uid)
                 if prog:
-                    query = query.filter(AlumniPerson.classes.cast(am.Text).ilike(f"%{prog}'%"))
+                    query = query.filter(AlumniPerson.classes.cast(am.Text).ilike(
+                        f"%{like_escape(prog)}'%", escape="\\"))
                 if year.isdigit():
                     query = query.filter(AlumniPerson.classes.cast(am.Text).like(f"%'{year}%"))
             else:
@@ -352,7 +381,8 @@ def identities():
     return render_template("identities_list.html", people=people, total=total, page=page,
                            pages=pages, q=q, category=cat, program=prog, year=year,
                            programs=prog_codes, years=years,
-                           categories=IDENTITY_CATEGORIES, counts=counts)
+                           categories=IDENTITY_CATEGORIES, counts=counts,
+                           chats=chats, chat=chat)
 
 
 @app.route("/identities/<int:user_id>")
@@ -372,9 +402,10 @@ def identity_detail(user_id):
             linked = {"uid": a.uid, "name": a.name} if a else None
         candidates = []
         if aq:
-            conds = [AlumniPerson.name.ilike(f"%{aq}%")]
+            conds = [AlumniPerson.name.ilike(f"%{like_escape(aq)}%", escape="\\")]
             if translit.has_cyrillic(aq):   # искать латинское имя по русскому вводу
-                conds.append(AlumniPerson.name.ilike(f"%{translit.ru_to_lat(aq)}%"))
+                conds.append(AlumniPerson.name.ilike(
+                    f"%{like_escape(translit.ru_to_lat(aq))}%", escape="\\"))
             for a in (s.query(AlumniPerson).filter(or_(*conds))
                       .order_by(AlumniPerson.name).limit(20)):
                 full = a.full or {}

@@ -5,16 +5,20 @@
 
 <div style="margin-bottom:14px;">
   {% for c in categories %}
-    <a class="badge" href="{{ url_for('identities', category=c) }}"
+    <a class="badge" href="{{ url_for('identities', category=c, chat=chat) }}"
        style="{% if c==category %}background:var(--accent);color:#fff;{% endif %}">
       {{ labels.get(c, c) }}: {{ counts.get(c, 0) }}</a>
   {% endfor %}
-  <a class="badge" href="{{ url_for('identities') }}"
+  <a class="badge" href="{{ url_for('identities', chat=chat) }}"
      style="{% if not category %}background:var(--accent);color:#fff;{% endif %}">все</a>
 </div>
 
 <form method="get" action="{{ url_for('identities') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:18px;">
   <input type="hidden" name="category" value="{{ category }}">
+  <select name="chat" onchange="this.form.submit()">
+    <option value="">все чаты</option>
+    {% for cid, ctitle in chats %}<option value="{{ cid }}" {% if chat == cid|string %}selected{% endif %}>{{ ctitle }}</option>{% endfor %}
+  </select>
   <input type="text" name="q" value="{{ q }}" placeholder="ник или введённое имя…" size="22" autofocus>
   {% if category in ('alumni', 'student', 'unresolved_alumni') %}
   <select name="program">
@@ -51,9 +55,9 @@
 
 {% if pages > 1 %}
 <div class="pager">
-  {% if page > 1 %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, year=year, q=q, page=page-1) }}">← назад</a>{% endif %}
+  {% if page > 1 %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, year=year, q=q, chat=chat, page=page-1) }}">← назад</a>{% endif %}
   <span class="muted">стр. {{ page }} из {{ pages }}</span>
-  {% if page < pages %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, year=year, q=q, page=page+1) }}">вперёд →</a>{% endif %}
+  {% if page < pages %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, year=year, q=q, chat=chat, page=page+1) }}">вперёд →</a>{% endif %}
 </div>
 {% endif %}
 {% endblock %}

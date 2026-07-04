@@ -101,10 +101,16 @@ class TgIdentity(Base):
     source = Column(Text)     # members_csv|join|buttons|manual
 
 
+_engines = {}
+
+
 def get_engine(url=None):
     url = url or os.environ.get("DATABASE_URL", "postgresql://localhost:5432/wachter")
     url = url.replace("postgres://", "postgresql://", 1)
-    return create_engine(url)
+    # переиспользуем engine (и его пул) на процесс — не плодим соединения
+    if url not in _engines:
+        _engines[url] = create_engine(url, pool_pre_ping=True)
+    return _engines[url]
 
 
 _default_engine = None
