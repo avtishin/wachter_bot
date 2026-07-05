@@ -67,3 +67,16 @@ def test_identity_category_change_unlinks(client):
     with alumni_models.session_scope() as s:
         ident = s.get(alumni_models.TgIdentity, 95)
         assert ident.category == "friend" and ident.alumni_uid is None
+
+
+def test_identity_edit_fields(client):
+    r = client.post("/identities/95/edit", headers=_auth(), data={
+        "declared_name": "Иванов Иван", "intro": "живу в Москве",
+        "declared_program": "MAE", "declared_year": "2019", "declared_email": ""})
+    assert r.status_code in (302, 200)
+    import alumni_models
+    with alumni_models.session_scope() as s:
+        ident = s.get(alumni_models.TgIdentity, 95)
+        # имя и «о себе» разведены; год распарсен; пустой email -> None
+        assert ident.declared_name == "Иванов Иван" and ident.intro == "живу в Москве"
+        assert ident.declared_year == 2019 and ident.declared_email is None

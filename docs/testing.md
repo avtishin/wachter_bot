@@ -1,76 +1,66 @@
 # Testing
 
+Два независимых набора: бот (SQLite, без Telegram) и скрейпер/дашборд
+(эфемерный Postgres через testcontainers).
+
 ## Запуск
 
 ```bash
+# Бот — 168 тестов, ~1.3 сек, без реального Telegram/PostgreSQL (SQLite)
 pipenv install --dev
-pytest -v                        # все тесты
-pytest tests/test_smoke.py       # smoke — быстрая проверка
-pytest tests/test_unit.py        # юнит-тесты функций
-pytest tests/test_handlers.py    # тесты хендлеров
-pytest tests/test_models.py      # интеграция с БД
-pytest -k "test_approve"         # один тест по имени
+pytest -v
+pytest tests/test_whois.py            # кнопочная анкета
+pytest -k "test_approve"              # один тест
+
+# Скрейпер/дашборд — 33 теста, эфемерный Postgres (нужен Docker)
+cd nes_directory && pip install -r requirements.txt
+pytest -q
 ```
 
-95 тестов, ~0.8 сек. Реальный Telegram и PostgreSQL не нужны.
+## Тесты бота (`tests/`)
 
-## Структура
+| Файл | Покрывает |
+|---|---|
+| `test_smoke.py` | импорты, async-корутины, константы, структура схемы |
+| `test_unit.py` | чистые функции: `authorize_user`, `mention_markdown`, `cancel_kick_jobs` и др. |
+| `test_handlers.py` | хендлеры с мок Update/Context (вход, кик, regex, настройки) |
+| `test_models.py` | ORM/`session_scope` (SQLite); дефолты и покрытие плейсхолдеров Markdown |
+| `test_whois.py` | кнопочная анкета: категории, годы, «Назад», валидация, завершение |
+| `test_alumni_bot.py` | узнавание выпускников, `classify`, `identity_greeting`, recap |
+| `test_start.py` | `/start` из таблицы chats, bootstrap chats-строки, детект выхода, покрытие меню |
+| `test_security.py` | `escape_md_v1`/`safe_mention` (markdown-инъекция), `split_message` |
+| `test_logging.py` | httpx/httpcore на WARNING (токен не течёт в логи) |
 
-```
-tests/
-    conftest.py       # фикстуры, setup БД, sys.path
-    helpers.py        # фабрики make_update(), make_message(), make_kick_job()
-    test_smoke.py     # импорты, async-корутины, константы, отсутствие хардкодов
-    test_unit.py      # чистые функции: authorize_user, filter_message, cancel_kick_jobs и др.
-    test_handlers.py  # хендлеры с мок-объектами Update/Context
-    test_models.py    # CRUD и session_scope с SQLite
-```
+## Как устроены (бот)
 
-## Как устроены тесты
+- **БД** — `conftest.py` ставит `DATABASE_URL=sqlite:///tests/test.db` до импорта
+  `model.py`; таблицы создаются раз за сессию, чистятся autouse-фикстурой
+  `clean_db`. Read-models общих таблиц заданы как generic JSON, поэтому работают
+  на SQLite.
+- **Telegram** — `AsyncMock`. Фикстуры `mock_bot`/`admin_bot` задают статус и
+  `user.full_name/id` (для `safe_mention`). `_bot_has_rights` (autouse) патчит
+  `ensure_rights → True`.
+- **Фабрики** — `helpers.py`: `make_update`, `make_message`, `make_kick_job`;
+  `telegram_markdown_ok` валидирует итоговый Markdown (ловит инъекции/битые теги).
 
-**База данных** — `conftest.py` устанавливает `DATABASE_URL=sqlite:///tests/test.db` до первого импорта `model.py`. Таблицы создаются один раз за сессию, очищаются после каждого теста (autouse-фикстура `clean_db`).
+## Тесты скрейпера/дашборда (`nes_directory/tests/`)
 
-**Telegram API** — заменяется `AsyncMock`:
-```python
-@pytest.fixture
-def mock_bot():
-    bot = AsyncMock()
-    bot.get_chat_member.return_value.status = "member"
-    return bot
-```
+`conftest.py` поднимает эфемерный Postgres (testcontainers), прогоняет `init_db`.
+Покрывают: `alumni_derive`/`alumni_link` (парсинг, привязка, classify, reconcile),
+`nes_db.ingest` (diff/история), `seed_members`, `translit`, и Flask-роуты
+дашборда (`test_dashboard`, `test_identities`: resolve/category/edit).
 
-**БД в хендлерах** — `session_scope` патчится через `patch("actions.session_scope")`:
-```python
-with patch("actions.session_scope") as mock_scope:
-    mock_sess = MagicMock()
-    mock_sess.query.return_value.filter.return_value.first.return_value = mock_chat
-    mock_scope.return_value.__enter__.return_value = mock_sess
-    await on_new_chat_member(update, mock_context)
-```
+## Добавление теста
 
-**Job queue** — `mock_job_queue.get_jobs_by_name` настраивается под конкретный тест:
-```python
-job = make_kick_job(chat_id=-100, user_id=42)
-mock_context.job_queue.get_jobs_by_name.side_effect = (
-    lambda name: [job] if "kick" in name else []
-)
-```
+- Новый хендлер бота → `test_handlers.py`; шаг анкеты → `test_whois.py`;
+  узнавание/приветствия → `test_alumni_bot.py`; модель → `test_models.py`.
+- Меняешь тексты/поведение приветствий — обнови ассерты в `test_whois.py`
+  (`_finish_declared`) и `test_alumni_bot.py` (`identity_greeting`).
+- Любой пользовательский текст в MARKDOWN-сообщении — прогони через
+  `telegram_markdown_ok` (иначе инъекция проскочит мимо).
 
-## Добавление нового теста
+## Ограничения
 
-1. Новый хендлер → добавить в `test_handlers.py`
-2. Новая вспомогательная функция → добавить в `test_unit.py`
-3. Изменение модели → добавить в `test_models.py`
-4. Новая константа или проверка структуры → добавить в `test_smoke.py`
-
-Для создания моков Update/Context использовать фабрики из `helpers.py`:
-```python
-from helpers import make_update, make_kick_job
-
-update = make_update(chat_id=-100, user_id=42, text="привет")
-```
-
-## Известные ограничения
-
-- E2E-тесты против реального Telegram API отсутствуют — требуют тестового бота и отдельного чата
-- Job-таймеры (`on_kick_timeout`, `on_notify_timeout`) не тестируются напрямую — только факт вызова `job_queue.run_once` с правильными параметрами
+- E2E против реального Telegram нет (нужен тестовый бот и чат).
+- Job-таймеры проверяются по факту вызова `job_queue.run_once`, не по срабатыванию.
+- Таймеры теряются при рестарте бота (PicklePersistence не хранит job_queue).

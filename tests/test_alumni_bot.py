@@ -125,6 +125,15 @@ def test_identity_greeting_declared_and_alumnus():
     assert "Tishin A, MAE'2019" in m2 and "#whois MAE'2019" in m2
 
 
+def test_identity_greeting_falls_back_to_nick_and_intro():
+    # не идентифицирован (нет привязки и declared_name) → имя = тг-ник, тело = intro
+    ident = SimpleNamespace(declared_name=None, declared_program=None,
+                            declared_year=None, intro="дружу с РЭШ",
+                            username="cool_friend", category="friend")
+    m = al.identity_greeting(ident, None, "%NAME%, %CLASS% — снова")
+    assert "@cool_friend" in m and "дружу с РЭШ" in m and "#whois друг РЭШ" in m
+
+
 async def test_rejoin_shows_recap_not_snova(mock_context):
     chat_id, uid = -100, 900
     with session_scope() as s:

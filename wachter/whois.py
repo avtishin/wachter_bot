@@ -174,7 +174,8 @@ async def start(update, context, chat_id, user_id, username, intro_text, templat
             "student_prompt": templates.get("student_prompt") or constants.on_student_prompt_message,
             "friend_prompt": templates.get("friend_prompt") or constants.on_friend_prompt_message,
             "employee_prompt": templates.get("employee_prompt") or constants.on_employee_prompt_message,
-            "introduce": templates.get("introduce") or "%NAME%, %CLASS% — добро пожаловать! 🎓",
+            "introduce": templates.get("introduce")
+            or "%USER\\_MENTION%, %CLASS% — добро пожаловать! 🎓\n%NAME%",
         },
         "bot_msgs": [],   # id-шники промптов бота — удалим в конце
     }
@@ -388,25 +389,31 @@ async def _finish_declared(update, context, state, text):
     with session_scope() as s:
         max_year = alumni.max_grad_year(s)
         category = alumni.classify(choice, year, max_year)
+        # declared_name НЕ пишем: имя берётся из директории (привязка) или правки
+        # админа. Свободный текст — это описание (intro), не имя.
         alumni.upsert_identity(
             s, user_id, username=state.get("username"), category=category,
-            declared_name=text, declared_program=state.get("program"),
+            declared_program=state.get("program"),
             declared_year=year, declared_email=state.get("declared_email"),
             intro=text, source="buttons")
         s.merge(User(chat_id=chat_id, user_id=user_id, whois=text))
-    # приветствие в общем формате (%NAME%/%CLASS%) + searchable #whois (без почты)
+    # приветствие: упоминание (Telegram) + класс + текст анкеты телом + #whois.
+    # шлём MARKDOWN, поэтому пользовательский текст экранируем.
+    import actions
     prog, year = state.get("program"), state.get("year")
     klass = f"{prog}'{year}" if prog and year else ""   # у друга/сотрудника класса нет
-    template = _tpl(state, "introduce", "%NAME%, %CLASS% — добро пожаловать! 🎓")
-    summary = alumni.format_greeting(template, text, klass)
+    template = _tpl(state, "introduce",
+                    "%USER\\_MENTION%, %CLASS% — добро пожаловать! 🎓\n%NAME%")
+    summary = template.replace("%USER\\_MENTION%", actions.safe_mention(update.effective_user))
+    summary = alumni.format_greeting(summary, actions.escape_md_v1(text), klass)
     tag = _declared_tag(state)
     if tag:
-        summary += f"\n\n#whois {tag}"
+        summary += f"\n\n#whois {actions.escape_md_v1(tag)}"
     await _delete_msg(context, chat_id, update.message.message_id)  # имя от юзера
     await _cleanup_prompts(context, chat_id, state)                 # промпты бота
     await _cancel_kick(context, chat_id, user_id)
     _clear(context, user_id)
-    await context.bot.send_message(chat_id, summary)
+    await context.bot.send_message(chat_id, summary, parse_mode=ParseMode.MARKDOWN)
 
 
 async def _cancel_kick(context, chat_id, user_id):

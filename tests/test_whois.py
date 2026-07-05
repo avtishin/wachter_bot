@@ -39,6 +39,8 @@ def _cb(user_id, data):
 def _text(user_id, text):
     u = MagicMock()
     u.effective_user.id = user_id
+    u.effective_user.full_name = "Тест Юзер"   # для safe_mention в завершении анкеты
+    u.effective_user.name = "test"
     u.message.text = text
     u.message.reply_text = AsyncMock()
     return u
@@ -69,7 +71,9 @@ async def test_student_full_flow():
         ident = s.get(TgIdentity, uid)
         assert ident.category == "student"
         assert ident.declared_year == cur and ident.declared_program == "MAE"
-        assert ident.declared_name == intro and ident.source == "buttons"
+        # свободный текст → только intro; declared_name пусто (не идентифицирован)
+        assert ident.intro == intro and ident.declared_name is None
+        assert ident.source == "buttons"
     assert whois._get(ctx, uid) is None   # state cleared
 
 
@@ -117,6 +121,8 @@ async def test_completion_deletes_input_and_posts_whois():
     chat_id, summary = ctx.bot.send_message.call_args[0][:2]
     assert chat_id == CHAT_ID
     assert "#whois" in summary and "MAE'2019" in summary and "Иванов Иван" in summary
+    assert "tg://user?id=800" in summary   # упоминание пользователя вставлено
+    assert ctx.bot.send_message.call_args.kwargs.get("parse_mode") is not None
 
 
 async def test_completion_deletes_bot_prompts_and_friendly_welcome():
