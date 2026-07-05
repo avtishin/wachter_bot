@@ -16,7 +16,7 @@ class Chat(Base):
 
     on_new_chat_member_message = Column(Text, nullable=False, default='Пожалуйста, представьтесь и поздоровайтесь с сообществом. У вас есть %TIMEOUT%.')
     on_known_new_chat_member_message = Column(Text, nullable=False, default='%NAME%, %CLASS% — с возвращением! 🎓')
-    on_introduce_message = Column(Text, nullable=False, default='%NAME%, %CLASS% — добро пожаловать! 🎓')
+    on_introduce_message = Column(Text, nullable=False, default='%USER\\_MENTION%, %CLASS% — добро пожаловать! 🎓\n%NAME%')
     on_alumni_welcome_message = Column(Text, nullable=False, default='Добро пожаловать в Мишпуху 2.0, %NAME% (%CLASS%)! 🤍')
     on_email_prompt_message = Column(Text, nullable=False, default='📧 Введите ваш основной e-mail, указанный в профиле на my.nes.ru (раздел «Контактная информация»). Сверим его с директорией — если найдём, сразу вас узнаем. Не помните или не совпадёт — ничего страшного, продолжим вручную.')
     on_whois_welcome_message = Column(Text, nullable=False, default='Привет, %USER\\_MENTION%.\nРады видеть тебя в Мишпухе 2.0 🤍\n\nЭто чат студентов, выпускников, сотрудников и друзей РЭШ.\nДавайте познакомимся — выберите, кто вы (у вас есть %TIMEOUT%):')

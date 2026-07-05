@@ -23,7 +23,7 @@ depends_on = None
 _UPDATES = [
     ("on_introduce_message",
      '🤍 Добро пожаловать в Мишпуху 2.0!',
-     '%NAME%, %CLASS% — добро пожаловать! 🎓'),
+     '%USER\\_MENTION%, %CLASS% — добро пожаловать! 🎓\n%NAME%'),
     ("on_known_new_chat_member_message",
      'Добро пожаловать. Снова',
      '%NAME%, %CLASS% — с возвращением! 🎓'),
