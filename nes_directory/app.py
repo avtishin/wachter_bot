@@ -457,6 +457,23 @@ def identity_category(user_id):
     return redirect(url_for("identity_detail", user_id=user_id))
 
 
+@app.route("/identities/<int:user_id>/edit", methods=["POST"])
+def identity_edit(user_id):
+    """Ручное редактирование заявленных данных участника (имя/о себе/программа/
+    год/email) — в т.ч. чтобы развести совпадающие «Заявленное имя» и «О себе»."""
+    with am.session_scope() as s:
+        ident = s.get(TgIdentity, user_id)
+        if not ident:
+            abort(404)
+        ident.declared_name = (request.form.get("declared_name") or "").strip() or None
+        ident.intro = (request.form.get("intro") or "").strip() or None
+        ident.declared_program = (request.form.get("declared_program") or "").strip() or None
+        yr = (request.form.get("declared_year") or "").strip()
+        ident.declared_year = int(yr) if yr.isdigit() else None
+        ident.declared_email = (request.form.get("declared_email") or "").strip() or None
+    return redirect(url_for("identity_detail", user_id=user_id))
+
+
 # создаём общую схему (alumni_* / tg_identity) на старте, чтобы свежий деплой
 # показывал пустое состояние, а не 500 до первого bootstrap. Идемпотентно.
 try:

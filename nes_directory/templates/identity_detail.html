@@ -11,15 +11,29 @@
   </h2>
   <div class="kv">
     <dt>user_id</dt><dd>{{ i.user_id }}</dd>
+    <dt>Ник в телеграме</dt><dd>{% if i.username %}<a href="https://t.me/{{ i.username }}" target="_blank" rel="noopener">@{{ i.username }}</a>{% else %}<span class="muted">—</span>{% endif %}</dd>
     <dt>источник</dt><dd>{{ i.source or '—' }}</dd>
-    {% if i.declared_name %}<dt>Заявленное имя</dt><dd>{{ i.declared_name }}</dd>{% endif %}
-    {% if i.declared_program or i.declared_year %}<dt>Заявл. программа/год</dt><dd>{{ i.declared_program or '' }} {{ i.declared_year or '' }}</dd>{% endif %}
-    {% if i.declared_email %}<dt>Заявл. email</dt><dd>{{ i.declared_email }}</dd>{% endif %}
-    {% if i.intro %}<dt>О себе</dt><dd>{{ i.intro }}</dd>{% endif %}
     <dt>Привязка</dt><dd>
       {% if linked %}<a href="{{ url_for('alumni_detail', uid=linked.uid) }}">{{ linked.name }}</a> (uid {{ linked.uid }}){% else %}<span class="muted">нет</span>{% endif %}
     </dd>
   </div>
+</div>
+
+<div class="panel">
+  <h2>Данные участника</h2>
+  <form method="post" action="{{ url_for('identity_edit', user_id=i.user_id) }}">
+    <label>Заявленное имя<br>
+      <input type="text" name="declared_name" value="{{ i.declared_name or '' }}" style="width:100%; max-width:480px;"></label>
+    <label style="display:block; margin-top:10px;">О себе<br>
+      <textarea name="intro" rows="3" style="width:100%; max-width:480px;">{{ i.intro or '' }}</textarea></label>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <label>Программа<br><input type="text" name="declared_program" value="{{ i.declared_program or '' }}" size="10"></label>
+      <label>Год<br><input type="text" name="declared_year" value="{{ i.declared_year or '' }}" size="6"></label>
+      <label>Email<br><input type="text" name="declared_email" value="{{ i.declared_email or '' }}" size="24"></label>
+    </div>
+    <button class="btn green" style="margin-top:12px;">Сохранить</button>
+  </form>
+  <p class="muted" style="font-size:12px; margin-top:8px;">После анкеты «Заявленное имя» и «О себе» заполняются одним и тем же текстом (анкета — одно поле). Поправьте вручную, если нужно развести имя и описание.</p>
 </div>
 
 <div class="panel">
