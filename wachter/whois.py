@@ -389,9 +389,11 @@ async def _finish_declared(update, context, state, text):
     with session_scope() as s:
         max_year = alumni.max_grad_year(s)
         category = alumni.classify(choice, year, max_year)
+        # declared_name НЕ пишем: имя берётся из директории (привязка) или правки
+        # админа. Свободный текст — это описание (intro), не имя.
         alumni.upsert_identity(
             s, user_id, username=state.get("username"), category=category,
-            declared_name=text, declared_program=state.get("program"),
+            declared_program=state.get("program"),
             declared_year=year, declared_email=state.get("declared_email"),
             intro=text, source="buttons")
         s.merge(User(chat_id=chat_id, user_id=user_id, whois=text))

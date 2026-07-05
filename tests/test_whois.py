@@ -71,7 +71,9 @@ async def test_student_full_flow():
         ident = s.get(TgIdentity, uid)
         assert ident.category == "student"
         assert ident.declared_year == cur and ident.declared_program == "MAE"
-        assert ident.declared_name == intro and ident.source == "buttons"
+        # свободный текст → только intro; declared_name пусто (не идентифицирован)
+        assert ident.intro == intro and ident.declared_name is None
+        assert ident.source == "buttons"
     assert whois._get(ctx, uid) is None   # state cleared
 
 

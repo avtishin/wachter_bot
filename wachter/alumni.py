@@ -185,10 +185,17 @@ def _identity_tag(ident, alum):
 
 
 def identity_greeting(ident, alum, template):
-    """Приветствие вернувшегося: %NAME%/%CLASS% из карточки или заявленных
-    данных + тег #whois. Формат общий для выпускника/студента/друга/сотрудника."""
-    name = (alum.name if alum is not None else (ident.declared_name or ident.intro)) or ""
+    """Приветствие вернувшегося. Имя: из карточки выпускника, иначе ручное
+    declared_name, иначе тг-ник. Описание (intro) — телом (только не для
+    выпускника, у него данные из директории). + тег #whois."""
+    if alum is not None:
+        name, body = (alum.name or ""), ""
+    else:
+        name = ident.declared_name or (f"@{ident.username}" if ident.username else "")
+        body = ident.intro or ""
     msg = format_greeting(template, name, _identity_class(ident, alum))
+    if body:
+        msg += f"\n{body}"
     tag = _identity_tag(ident, alum)
     if tag:
         msg += f"\n\n#whois {tag}"
