@@ -606,7 +606,7 @@ def _texts_keyboard(chat_id):
         _btn("Анкета: сотрудник РЭШ", chat_id, Actions.set_on_employee_prompt_message),
         _btn("Сообщение после знакомства", chat_id, Actions.set_on_successful_introducion_response),
         _btn("Сообщение при перезаходе", chat_id, Actions.set_on_known_new_chat_member_message_response),
-        _btn("Напоминание написать #whois", chat_id, Actions.set_on_whois_reminder_message),
+        _btn("Напоминание закончить анкету", chat_id, Actions.set_on_whois_reminder_message),
         _btn("Предупреждение перед киком", chat_id, Actions.set_notify_message),
         _btn("Сообщение после кика", chat_id, Actions.set_on_kick_message),
         _btn("Сообщение при выходе из чата", chat_id, Actions.set_on_left_chat_member_message),
@@ -619,7 +619,7 @@ def _kick_keyboard(chat_id):
         _btn("Таймаут кика", chat_id, Actions.set_kick_timeout),
         _btn("Напоминание (мин. до кика)", chat_id, Actions.set_notify_delta),
         _btn("Длительность бана (мин.)", chat_id, Actions.set_ban_duration),
-        _btn("Мин. длина #whois", chat_id, Actions.set_min_whois_length),
+        _btn("Мин. длина анкеты", chat_id, Actions.set_min_whois_length),
         _btn("◀ Назад", chat_id, Actions.select_chat),
     ])
 
