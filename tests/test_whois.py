@@ -130,7 +130,8 @@ async def test_completion_deletes_bot_prompts_and_friendly_welcome():
     # deleted: two bot prompts (111,222) + the user's name message
     assert ctx.bot.delete_message.call_count == 3
     summary = ctx.bot.send_message.call_args[0][1]
-    assert "Добро пожаловать в Мишпуху 2.0" in summary and "#whois MAE'2019" in summary
+    # общий формат: %NAME%, %CLASS% — добро пожаловать + searchable тег
+    assert "добро пожаловать" in summary and "MAE'2019" in summary and "#whois MAE'2019" in summary
 
 
 async def test_email_message_is_deleted():

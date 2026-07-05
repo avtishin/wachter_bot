@@ -269,7 +269,7 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
             ident = sess.get(TgIdentity, user_id)
             if ident is not None and ident.category and ident.category != "unknown":
                 alum = sess.get(AlumniPerson, ident.alumni_uid) if ident.alumni_uid else None
-                recap = alumni.identity_greeting(ident, alum, whois_templates["alumni_welcome"])
+                recap = alumni.identity_greeting(ident, alum, known_message)
                 if isinstance(username, str) and username.strip():
                     ident.username = alumni.normalize_username(username)
                 sess.merge(User(chat_id=chat_id, user_id=user_id, whois="known"))
@@ -283,7 +283,8 @@ async def on_new_chat_member(update, context: ContextTypes.DEFAULT_TYPE):
                 User.chat_id == chat_id, User.user_id == user_id).first() is not None
         logger.info(f"on_new_chat_member: chat_id={chat_id} user_id={user_id} found_in_db={user_found}")
         if user_found:
-            await update.message.reply_text(known_message)
+            # легаси-юзер без идентичности: данных для %NAME%/%CLASS% нет
+            await update.message.reply_text(alumni.format_greeting(known_message, "", ""))
             continue
 
         # 3) узнаём выпускника по telegram-нику (member.username: str | None)
