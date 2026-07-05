@@ -174,7 +174,7 @@ async def start(update, context, chat_id, user_id, username, intro_text, templat
             "student_prompt": templates.get("student_prompt") or constants.on_student_prompt_message,
             "friend_prompt": templates.get("friend_prompt") or constants.on_friend_prompt_message,
             "employee_prompt": templates.get("employee_prompt") or constants.on_employee_prompt_message,
-            "introduce": templates.get("introduce") or "🤍 Добро пожаловать в Мишпуху 2.0!",
+            "introduce": templates.get("introduce") or "%NAME%, %CLASS% — добро пожаловать! 🎓",
         },
         "bot_msgs": [],   # id-шники промптов бота — удалим в конце
     }
@@ -394,10 +394,12 @@ async def _finish_declared(update, context, state, text):
             declared_year=year, declared_email=state.get("declared_email"),
             intro=text, source="buttons")
         s.merge(User(chat_id=chat_id, user_id=user_id, whois=text))
-    # friendly welcome + searchable #whois summary (no email); drop all inputs
+    # приветствие в общем формате (%NAME%/%CLASS%) + searchable #whois (без почты)
+    prog, year = state.get("program"), state.get("year")
+    klass = f"{prog}'{year}" if prog and year else ""   # у друга/сотрудника класса нет
+    template = _tpl(state, "introduce", "%NAME%, %CLASS% — добро пожаловать! 🎓")
+    summary = alumni.format_greeting(template, text, klass)
     tag = _declared_tag(state)
-    intro = _tpl(state, "introduce", "🤍 Добро пожаловать в Мишпуху 2.0!")
-    summary = f"{intro}\n{text}"
     if tag:
         summary += f"\n\n#whois {tag}"
     await _delete_msg(context, chat_id, update.message.message_id)  # имя от юзера

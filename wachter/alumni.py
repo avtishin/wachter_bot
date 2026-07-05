@@ -149,15 +149,47 @@ def alumni_whois_message(template, alum):
     return msg
 
 
-def identity_greeting(ident, alum, template):
-    """Recap for a returning known participant: alumnus card, or their declared
-    name/program/intro — instead of a bare 'welcome again'."""
+def format_greeting(template, name, klass):
+    """Подставляет %NAME%/%CLASS% в шаблон приветствия. Если класса нет
+    (друг/сотрудник) — убирает «, %CLASS%». Если нет имени — убирает «%NAME%,»
+    и осиротевшую пунктуацию в начале."""
+    msg = template
+    if klass:
+        msg = msg.replace("%CLASS%", klass)
+    else:
+        msg = re.sub(r",?\s*%CLASS%", "", msg)
+    if name:
+        msg = msg.replace("%NAME%", name)
+    else:
+        msg = re.sub(r"%NAME%\s*,?\s*", "", msg)
+    msg = re.sub(r"^[\s,—–-]+", "", msg)
+    return msg.strip()
+
+
+def _identity_class(ident, alum):
+    """Класс вернувшегося: у выпускника — его классы, у заявленного —
+    program'year (у друга/сотрудника класса нет)."""
     if alum is not None:
-        return alumni_whois_message(template, alum)
+        return classes_str(alum)
     prog, year = ident.declared_program, ident.declared_year
-    tag = f"{prog}'{year}" if prog and year else (prog or "")
-    body = ident.intro or ident.declared_name or ""
-    msg = (f"С возвращением!\n{body}").rstrip() if body else "С возвращением!"
+    return f"{prog}'{year}" if prog and year else (prog or "")
+
+
+def _identity_tag(ident, alum):
+    """Тег для #whois: класс, либо роль друга/сотрудника/студента."""
+    klass = _identity_class(ident, alum)
+    if klass:
+        return klass
+    return {"friend": "друг РЭШ", "employee": "сотрудник РЭШ",
+            "student": "студент РЭШ"}.get(ident.category, "")
+
+
+def identity_greeting(ident, alum, template):
+    """Приветствие вернувшегося: %NAME%/%CLASS% из карточки или заявленных
+    данных + тег #whois. Формат общий для выпускника/студента/друга/сотрудника."""
+    name = (alum.name if alum is not None else (ident.declared_name or ident.intro)) or ""
+    msg = format_greeting(template, name, _identity_class(ident, alum))
+    tag = _identity_tag(ident, alum)
     if tag:
         msg += f"\n\n#whois {tag}"
     return msg

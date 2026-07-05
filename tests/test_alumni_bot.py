@@ -105,11 +105,20 @@ def test_alumni_whois_message_includes_bio_and_tag():
     assert "#whois MAE'2019" in msg
 
 
+def test_format_greeting_class_and_no_class():
+    # студент/выпускник — с классом
+    assert al.format_greeting("%NAME%, %CLASS% — привет", "Иван", "MAE'2019") == "Иван, MAE'2019 — привет"
+    # друг/сотрудник — класса нет, «, %CLASS%» убирается
+    assert al.format_greeting("%NAME%, %CLASS% — привет", "Иван", "") == "Иван — привет"
+    # легаси без имени/класса — чистим осиротевшую пунктуацию
+    assert al.format_greeting("%NAME%, %CLASS% — привет", "", "") == "привет"
+
+
 def test_identity_greeting_declared_and_alumnus():
     declared = SimpleNamespace(declared_program="MAE", declared_year=2019,
                                intro="Алекс, работаю в X", declared_name="Алекс")
-    m = al.identity_greeting(declared, None, "%NAME%, %CLASS%")
-    assert "Алекс, работаю в X" in m and "#whois MAE'2019" in m
+    m = al.identity_greeting(declared, None, "%NAME%, %CLASS% — снова")
+    assert "Алекс, MAE'2019" in m and "#whois MAE'2019" in m   # имя из declared_name
     alum = SimpleNamespace(name="Tishin A", first_name="A", last_name="T",
                            classes=["MAE'2019"], programs=[], full={})
     m2 = al.identity_greeting(SimpleNamespace(), alum, "%NAME%, %CLASS%")
@@ -119,7 +128,7 @@ def test_identity_greeting_declared_and_alumnus():
 async def test_rejoin_shows_recap_not_snova(mock_context):
     chat_id, uid = -100, 900
     with session_scope() as s:
-        s.add(Chat(id=chat_id, on_known_new_chat_member_message="Снова"))
+        s.add(Chat(id=chat_id, on_known_new_chat_member_message="%NAME%, %CLASS% — снова"))
         s.add(AlumniPerson(uid="10", name="Tishin A", first_name="A", last_name="T",
                            classes=["MAE'2019"], programs=[], grad_year_max=2019))
         s.add(User(chat_id=chat_id, user_id=uid, whois="alumni:10"))
