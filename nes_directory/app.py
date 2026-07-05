@@ -457,6 +457,13 @@ def identity_category(user_id):
     return redirect(url_for("identity_detail", user_id=user_id))
 
 
+# создаём общую схему (alumni_* / tg_identity) на старте, чтобы свежий деплой
+# показывал пустое состояние, а не 500 до первого bootstrap. Идемпотентно.
+try:
+    am.init_db()
+except Exception as e:
+    print(f"[startup] init_db пропущен: {e}")
+
 start_scheduler_once()
 
 if __name__ == "__main__":
