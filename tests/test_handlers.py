@@ -415,8 +415,10 @@ class TestNewChatMember:
         mock_chat = MagicMock()
         mock_chat.on_new_chat_member_message = "Привет %USER\\_MENTION%! Есть %TIMEOUT%."
         mock_chat.on_known_new_chat_member_message = "Снова привет."
+        mock_chat.on_whois_welcome_message = "Мишпуха, у вас есть %TIMEOUT%"
         mock_chat.kick_timeout = 0
         mock_sess = MagicMock()
+        mock_sess.get.return_value = None  # нет tg_identity
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat,  # Chat query
             None,       # User query — нового пользователя нет в БД
@@ -442,6 +444,7 @@ class TestNewChatMember:
             mock_chat,
             mock_user,  # пользователь уже есть в БД
         ]
+        mock_sess.get.return_value = None  # нет tg_identity → обычное «Снова»
 
         with patch("actions.session_scope") as mock_scope:
             mock_scope.return_value.__enter__.return_value = mock_sess
@@ -456,8 +459,10 @@ class TestNewChatMember:
         mock_chat = MagicMock()
         mock_chat.on_new_chat_member_message = "Привет %USER\\_MENTION%!"
         mock_chat.on_known_new_chat_member_message = "Снова."
+        mock_chat.on_whois_welcome_message = "Мишпуха"
         mock_chat.kick_timeout = 0
         mock_sess = MagicMock()
+        mock_sess.get.return_value = None  # нет tg_identity ни у кого
         # Chat один раз, затем 3 раза User (для каждого участника)
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat, None, None, None
@@ -492,26 +497,6 @@ class TestNewChatMember:
 
         update.message.reply_text.assert_not_called()
 
-    async def test_skip_message_sends_nothing(self, mock_context):
-        from actions import on_new_chat_member
-        import constants as c
-        update = self._make_new_member_update()
-
-        mock_chat = MagicMock()
-        mock_chat.on_new_chat_member_message = c.skip_on_new_chat_member_message
-        mock_chat.on_known_new_chat_member_message = "Снова."
-        mock_chat.kick_timeout = 0
-        mock_sess = MagicMock()
-        mock_sess.query.return_value.filter.return_value.first.side_effect = [
-            mock_chat, None
-        ]
-
-        with patch("actions.session_scope") as mock_scope:
-            mock_scope.return_value.__enter__.return_value = mock_sess
-            await on_new_chat_member(update, mock_context)
-
-        update.message.reply_text.assert_not_called()
-
     async def test_kick_timeout_schedules_jobs(self, mock_context):
         from actions import on_new_chat_member
         update = self._make_new_member_update()
@@ -523,6 +508,7 @@ class TestNewChatMember:
         mock_chat.kick_timeout = 30
         mock_chat.notify_delta = 10
         mock_sess = MagicMock()
+        mock_sess.get.return_value = None
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat, None
         ]
@@ -540,7 +526,8 @@ class TestNewChatMember:
         assert any("notify" in n for n in names)
         assert any("kick" in n for n in names)
 
-    async def test_timeout_placeholder_replaced(self, mock_context):
+    async def test_whois_welcome_sent(self, mock_context):
+        """Новичок (не найден) получает тёплое приветствие whois, без %TIMEOUT%."""
         from actions import on_new_chat_member
         update = self._make_new_member_update()
         sent_texts = []
@@ -554,9 +541,11 @@ class TestNewChatMember:
         mock_chat = MagicMock()
         mock_chat.on_new_chat_member_message = "Есть %TIMEOUT% на представление."
         mock_chat.on_known_new_chat_member_message = "Снова."
+        mock_chat.on_whois_welcome_message = "Мишпуха, у вас есть %TIMEOUT%"
         mock_chat.kick_timeout = 15
         mock_chat.notify_delta = 10
         mock_sess = MagicMock()
+        mock_sess.get.return_value = None
         mock_sess.query.return_value.filter.return_value.first.side_effect = [
             mock_chat, None
         ]
@@ -566,7 +555,7 @@ class TestNewChatMember:
             await on_new_chat_member(update, mock_context)
 
         assert len(sent_texts) == 1
-        assert "15 мин." in sent_texts[0]
+        assert "Мишпух" in sent_texts[0]
         assert "%TIMEOUT%" not in sent_texts[0]
 
 

@@ -45,7 +45,8 @@ class TestMentionMarkdown:
     async def test_replaces_placeholder(self, mock_bot):
         from actions import mention_markdown
         mock_bot.get_chat_member.return_value.user.name = "Alice"
-        mock_bot.get_chat_member.return_value.user.mention_markdown.return_value = "[Alice](tg://user?id=1)"
+        mock_bot.get_chat_member.return_value.user.full_name = "Alice"
+        mock_bot.get_chat_member.return_value.user.id = 1
         result = await mention_markdown(mock_bot, -100, 1, "Привет, %USER\\_MENTION%!")
         assert "[Alice](tg://user?id=1)" in result
         assert "%USER\\_MENTION%" not in result

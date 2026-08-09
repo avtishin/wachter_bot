@@ -11,10 +11,22 @@ def test_actions_imports():
         "on_help_command", "on_new_chat_member", "on_hashtag_message",
         "on_skip_command", "on_approve_command", "on_button_click",
         "on_message", "on_whois_command", "on_forward", "on_error",
+        "on_my_chat_member", "on_chat_member_update",
         "cancel_kick_jobs", "authorize_user", "mention_markdown",
+        "safe_mention", "escape_md_v1", "ensure_rights", "apply_timeout",
     ]
     for name in expected:
         assert hasattr(actions, name), f"actions.{name} не найден"
+
+
+def test_whois_and_alumni_modules():
+    import whois
+    for name in ["start", "on_whois_callback", "try_whois_text", "check_freeform"]:
+        assert hasattr(whois, name), f"whois.{name} не найден"
+    import alumni
+    for name in ["find_by_username", "find_by_email", "classify",
+                 "upsert_identity", "format_greeting", "identity_greeting"]:
+        assert hasattr(alumni, name), f"alumni.{name} не найден"
 
 
 def test_all_handlers_are_coroutines():
@@ -23,6 +35,7 @@ def test_all_handlers_are_coroutines():
         "on_help_command", "on_new_chat_member", "on_hashtag_message",
         "on_skip_command", "on_approve_command", "on_button_click",
         "on_message", "on_whois_command", "on_forward", "on_error",
+        "on_my_chat_member", "on_chat_member_update",
     ]
     for name in handlers:
         fn = getattr(actions, name)
@@ -47,7 +60,6 @@ def test_constants_exist():
     import constants
     required = [
         "help_message",
-        "skip_on_new_chat_member_message",
         "on_success_skip", "on_failed_skip", "on_set_new_message",
         "on_failed_kick_response", "Actions",
     ]
@@ -95,9 +107,10 @@ def test_bot_module_has_main():
 def test_model_columns():
     from model import Chat, User
     chat_cols = {c.name for c in Chat.__table__.columns}
-    assert {"id", "kick_timeout", "regex_filter", "filter_only_new_users",
-            "on_new_chat_member_message", "on_kick_message",
-            "notify_message", "on_introduce_message"} <= chat_cols
+    assert {"id", "title", "kick_timeout", "regex_filter", "filter_only_new_users",
+            "on_kick_message", "notify_message", "on_introduce_message",
+            "on_whois_welcome_message", "on_alumni_welcome_message",
+            "on_student_prompt_message", "min_whois_length"} <= chat_cols
 
     user_cols = {c.name for c in User.__table__.columns}
     assert {"user_id", "chat_id", "whois"} <= user_cols

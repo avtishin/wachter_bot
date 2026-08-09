@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Выпускники — NES Alumni{% endblock %}
+{% block body %}
+<form method="get" action="{{ url_for('alumni') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:18px;">
+  <input type="text" name="q" value="{{ q }}" placeholder="поиск по имени…" size="26" autofocus>
+  <select name="program">
+    <option value="">все программы</option>
+    {% for pr in programs %}
+      <option value="{{ pr }}" {% if pr==program %}selected{% endif %}>{{ pr }}</option>
+    {% endfor %}
+  </select>
+  <select name="year">
+    <option value="">все годы</option>
+    {% for y in years %}
+      <option value="{{ y }}" {% if y==year %}selected{% endif %}>{{ y }}</option>
+    {% endfor %}
+  </select>
+  <label class="muted"><input type="checkbox" name="removed" value="1" {% if show_removed %}checked{% endif %}> показывать скрытых</label>
+  <button class="btn">Найти</button>
+  <span class="muted">{{ total }} чел.</span>
+</form>
+
+<div class="grid">
+  {% for p in people %}
+  <a class="pcard" href="{{ url_for('alumni_detail', uid=p.uid) }}">
+    <div class="avatar">{{ p.name[:1]|upper }}</div>
+    <div style="min-width:0;">
+      <div class="nm">{{ p.name }} {% if p.removed %}<span class="pill removed">скрыт</span>{% endif %}</div>
+      <div class="mu">{{ p.classes|join(', ') }}</div>
+      {% if p.position %}<div class="mu">{{ p.position }}</div>{% endif %}
+      {% if p.residence %}<div class="mu">📍 {{ p.residence }}</div>{% endif %}
+    </div>
+  </a>
+  {% else %}
+  <p class="muted">Ничего не найдено.</p>
+  {% endfor %}
+</div>
+
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a class="btn ghost" href="{{ url_for('alumni', q=q, program=program, year=year, removed='1' if show_removed else None, page=page-1) }}">← назад</a>{% endif %}
+  <span class="muted">стр. {{ page }} из {{ pages }}</span>
+  {% if page < pages %}<a class="btn ghost" href="{{ url_for('alumni', q=q, program=program, year=year, removed='1' if show_removed else None, page=page+1) }}">вперёд →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

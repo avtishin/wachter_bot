@@ -1,15 +1,18 @@
 import os
 from pathlib import Path
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
+    ChatMemberHandler,
     PicklePersistence,
     filters,
 )
 from custom_filters import filter_bot_added
 import actions
+import whois
 
 
 def main():
@@ -27,15 +30,16 @@ def main():
     )
 
     app.add_error_handler(actions.on_error)
+    app.add_handler(ChatMemberHandler(
+        actions.on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
+    # выход участника — через chat_member (надёжно и в group, и в supergroup)
+    app.add_handler(ChatMemberHandler(
+        actions.on_chat_member_update, ChatMemberHandler.CHAT_MEMBER))
     app.add_handler(CommandHandler("help", actions.on_help_command))
 
     app.add_handler(MessageHandler(
         filters.StatusUpdate.NEW_CHAT_MEMBERS & filter_bot_added,
         actions.on_new_chat_member,
-    ))
-    app.add_handler(MessageHandler(
-        filters.StatusUpdate.LEFT_CHAT_MEMBER,
-        actions.on_left_chat_member,
     ))
     app.add_handler(MessageHandler(
         filters.Entity("hashtag"),
@@ -51,13 +55,22 @@ def main():
     app.add_handler(CommandHandler("skip", actions.on_skip_command))
     app.add_handler(CommandHandler("approve", actions.on_approve_command))
     app.add_handler(CommandHandler("whois", actions.on_whois_command))
+    app.add_handler(CallbackQueryHandler(whois.on_whois_callback, pattern=r"^w:"))
     app.add_handler(CallbackQueryHandler(actions.on_button_click))
     app.add_handler(MessageHandler(
         filters.TEXT | filters.CAPTION,
         actions.on_message,
     ))
 
-    app.run_polling()
+    # только нужные типы апдейтов — бот лёгкий, не тянет реакции/опросы и пр.
+    # (chat_member нужен для выхода участников, my_chat_member — статус бота)
+    app.run_polling(allowed_updates=[
+        Update.MESSAGE,
+        Update.EDITED_MESSAGE,
+        Update.CALLBACK_QUERY,
+        Update.MY_CHAT_MEMBER,
+        Update.CHAT_MEMBER,
+    ])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Участники чата — NES Alumni{% endblock %}
+{% block body %}
+{% set labels = {'alumni':'выпускник','student':'студент','unresolved_alumni':'не найден в базе','friend':'друг','employee':'сотрудник','unknown':'неизвестно'} %}
+
+<div style="margin-bottom:14px;">
+  {% for c in categories %}
+    <a class="badge" href="{{ url_for('identities', category=c, chat=chat) }}"
+       style="{% if c==category %}background:var(--accent);color:#fff;{% endif %}">
+      {{ labels.get(c, c) }}: {{ counts.get(c, 0) }}</a>
+  {% endfor %}
+  <a class="badge" href="{{ url_for('identities', chat=chat) }}"
+     style="{% if not category %}background:var(--accent);color:#fff;{% endif %}">все</a>
+</div>
+
+<form method="get" action="{{ url_for('identities') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:18px;">
+  <input type="hidden" name="category" value="{{ category }}">
+  <select name="chat" onchange="this.form.submit()">
+    <option value="">все чаты</option>
+    {% for cid, ctitle in chats %}<option value="{{ cid }}" {% if chat == cid|string %}selected{% endif %}>{{ ctitle }}</option>{% endfor %}
+  </select>
+  <input type="text" name="q" value="{{ q }}" placeholder="ник или введённое имя…" size="22" autofocus>
+  {% if category in ('alumni', 'student', 'unresolved_alumni') %}
+  <select name="program">
+    <option value="">все программы</option>
+    {% for pr in programs %}<option value="{{ pr }}" {% if pr==program %}selected{% endif %}>{{ pr }}</option>{% endfor %}
+  </select>
+  <select name="year">
+    <option value="">все годы</option>
+    {% for y in years %}<option value="{{ y }}" {% if y==year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+  </select>
+  {% endif %}
+  <button class="btn">Найти</button>
+  <span class="muted">{{ total }} чел.</span>
+</form>
+
+<div class="grid">
+  {% for p in people %}
+  <a class="pcard" href="{{ url_for('identity_detail', user_id=p.user_id) }}">
+    <div class="avatar">{{ (p.name or '?')[:1]|upper }}</div>
+    <div style="min-width:0;">
+      <div class="nm">{{ p.name }}
+        <span class="pill {{ 'new' if p.category=='alumni' else ('changed' if p.category in ('student','unresolved_alumni') else 'removed' if p.category=='unknown' else '') }}">{{ labels.get(p.category, p.category) }}</span>
+      </div>
+      {% if p.username %}<div class="mu">@{{ p.username }}</div>{% endif %}
+      {% if p.classes %}<div class="mu">{{ p.classes|join(', ') }}</div>{% endif %}
+      {% if p.info %}<div class="mu">{{ p.info }}</div>{% endif %}
+      {% if p.residence %}<div class="mu">📍 {{ p.residence }}</div>{% endif %}
+    </div>
+  </a>
+  {% else %}
+  <p class="muted">Ничего не найдено.</p>
+  {% endfor %}
+</div>
+
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, year=year, q=q, chat=chat, page=page-1) }}">← назад</a>{% endif %}
+  <span class="muted">стр. {{ page }} из {{ pages }}</span>
+  {% if page < pages %}<a class="btn ghost" href="{{ url_for('identities', category=category, program=program, year=year, q=q, chat=chat, page=page+1) }}">вперёд →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

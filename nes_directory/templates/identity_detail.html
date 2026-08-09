@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Участник {{ i.user_id }} — NES Alumni{% endblock %}
+{% block body %}
+{% set labels = {'alumni':'выпускник','student':'студент','unresolved_alumni':'не найден в базе','friend':'друг','employee':'сотрудник','unknown':'неизвестно'} %}
+<p><a href="{{ url_for('identities') }}">← к участникам чата</a></p>
+
+<div class="panel">
+  <h2 style="margin:0 0 10px;">
+    {% if i.username %}@{{ i.username }}{% else %}<span class="muted">без ника</span>{% endif %}
+    <span class="pill {{ 'new' if i.category=='alumni' else ('changed' if i.category in ('student','unresolved_alumni') else 'removed' if i.category=='unknown' else '') }}">{{ labels.get(i.category, i.category) }}</span>
+  </h2>
+  <div class="kv">
+    <dt>user_id</dt><dd>{{ i.user_id }}</dd>
+    <dt>Ник в телеграме</dt><dd>{% if i.username %}<a href="https://t.me/{{ i.username }}" target="_blank" rel="noopener">@{{ i.username }}</a>{% else %}<span class="muted">—</span>{% endif %}</dd>
+    <dt>источник</dt><dd>{{ i.source or '—' }}</dd>
+    <dt>Привязка</dt><dd>
+      {% if linked %}<a href="{{ url_for('alumni_detail', uid=linked.uid) }}">{{ linked.name }}</a> (uid {{ linked.uid }}){% else %}<span class="muted">нет</span>{% endif %}
+    </dd>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Данные участника</h2>
+  <form method="post" action="{{ url_for('identity_edit', user_id=i.user_id) }}">
+    <label>Заявленное имя<br>
+      <input type="text" name="declared_name" value="{{ i.declared_name or '' }}" style="width:100%; max-width:480px;"></label>
+    <label style="display:block; margin-top:10px;">О себе<br>
+      <textarea name="intro" rows="3" style="width:100%; max-width:480px;">{{ i.intro or '' }}</textarea></label>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:10px;">
+      <label>Программа<br><input type="text" name="declared_program" value="{{ i.declared_program or '' }}" size="10"></label>
+      <label>Год<br><input type="text" name="declared_year" value="{{ i.declared_year or '' }}" size="6"></label>
+      <label>Email<br><input type="text" name="declared_email" value="{{ i.declared_email or '' }}" size="24"></label>
+    </div>
+    <button class="btn green" style="margin-top:12px;">Сохранить</button>
+  </form>
+  <p class="muted" style="font-size:12px; margin-top:8px;">«Заявленное имя» пустое, если участник не привязан к выпускнику и имя не задано вручную — тогда используется тг-ник + «О себе». Заполните имя здесь, если нужно.</p>
+</div>
+
+<div class="panel">
+  <h2>Сменить категорию</h2>
+  <form method="post" action="{{ url_for('identity_category', user_id=i.user_id) }}" style="display:flex; gap:8px; flex-wrap:wrap;">
+    {% for c in categories %}
+      <button class="btn ghost" name="category" value="{{ c }}" {% if c==i.category %}disabled{% endif %}>{{ labels.get(c, c) }}</button>
+    {% endfor %}
+    <span class="muted">(смена на не-alumni снимает привязку)</span>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Привязать к выпускнику</h2>
+  <form method="get" action="{{ url_for('identity_detail', user_id=i.user_id) }}" style="margin-bottom:12px;">
+    <input type="text" name="aq" value="{{ aq }}" placeholder="поиск выпускника по имени…" size="30">
+    <button class="btn">Искать</button>
+  </form>
+  {% if candidates %}
+  <table>
+    <tr><th>имя</th><th>классы</th><th>работа / город</th><th>telegram</th><th></th><th></th></tr>
+    {% for a in candidates %}
+    <tr>
+      <td><a href="{{ url_for('alumni_detail', uid=a.uid) }}" target="_blank" rel="noopener">{{ a.name }} ↗</a></td>
+      <td class="muted">{{ a.classes|join(', ') }}</td>
+      <td class="muted" style="max-width:240px;">{{ a.position }}{% if a.position and a.residence %} · {% endif %}{{ a.residence }}</td>
+      <td class="muted">{% if a.telegram %}@{{ a.telegram }}{% endif %}</td>
+      <td class="muted" style="font-size:11px;">{{ a.emails|join(', ') }}</td>
+      <td>
+        <form method="post" action="{{ url_for('identity_resolve', user_id=i.user_id) }}">
+          <input type="hidden" name="alumni_uid" value="{{ a.uid }}">
+          <button class="btn green">Привязать</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="font-size:12px;">Кликните имя, чтобы открыть карточку выпускника в новой вкладке и проверить, тот ли это человек.</p>
+  {% elif aq %}
+  <p class="muted">Ничего не найдено по «{{ aq }}».</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>Удалить запись</h2>
+  <form method="post" action="{{ url_for('identity_delete', user_id=i.user_id) }}"
+        onsubmit="return confirm('Удалить эту запись участника из базы? Действие необратимо.');">
+    <button class="btn" style="background:#c81e1e;">Удалить участника из базы</button>
+    <span class="muted">полностью удаляет tg_identity этого пользователя</span>
+  </form>
+</div>
+{% endblock %}
